@@ -12,17 +12,21 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-      - name: Show files
+      - name: Check Project Files
         run: |
-          echo "=== REPOSITORY ==="
-          find . -maxdepth 4 -type f | sort
+          echo "=== BoomMusic ==="
+          find BoomMusic -maxdepth 3 -type f | sort
 
-      - name: Create Xcode project
+      - name: Install XcodeGen
         run: |
-          mkdir -p Build/BoomMusic.xcodeproj
+          brew install xcodegen
+
+      - name: Create Xcode Project
+        run: |
+          mkdir -p Build
 
           cat > Build/project.yml <<'EOF'
           name: BoomMusic
@@ -34,9 +38,9 @@ jobs:
           settings:
             base:
               PRODUCT_BUNDLE_IDENTIFIER: com.boommusic.app
-              SWIFT_VERSION: 5.0
-              INFOPLIST_FILE: BoomMusic/Info.plist
+              SWIFT_VERSION: "5.0"
               TARGETED_DEVICE_FAMILY: "1,2"
+              INFOPLIST_FILE: ../BoomMusic/Info.plist
 
           targets:
             BoomMusic:
@@ -44,30 +48,33 @@ jobs:
               platform: iOS
 
               sources:
-                - path: BoomMusic
+                - path: ../BoomMusic/AppDelegate.swift
+                - path: ../BoomMusic/SceneDelegate.swift
+                - path: ../BoomMusic/ViewController.swift
+                - path: ../BoomMusic/AudioManager.swift
 
               resources:
-                - path: BoomMusic/www
+                - path: ../BoomMusic/www
 
               settings:
                 base:
                   PRODUCT_NAME: BoomMusic
+                  GENERATE_INFOPLIST_FILE: NO
+                  CODE_SIGNING_ALLOWED: NO
+                  CODE_SIGNING_REQUIRED: NO
           EOF
 
-      - name: Install XcodeGen
-        run: |
-          brew install xcodegen
-
-      - name: Generate Xcode project
+      - name: Generate Xcode Project
         working-directory: Build
         run: |
           xcodegen generate
 
-      - name: Check generated project
+      - name: Verify Xcode Project
         run: |
+          echo "=== Generated Project ==="
           find Build -maxdepth 3 -type f | sort
 
-      - name: Build iOS Simulator
+      - name: Build for iOS Simulator
         working-directory: Build
         run: |
           xcodebuild \
@@ -80,23 +87,30 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             build
 
-      - name: Package simulator app
+      - name: Find Built App
         run: |
-          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData \
+          APP_PATH=$(find "$HOME/Library/Developer/Xcode/DerivedData" \
+            -type d \
             -path "*/Build/Products/Release-iphonesimulator/BoomMusic.app" \
             -print -quit)
 
           if [ -z "$APP_PATH" ]; then
-            echo "BoomMusic.app tidak ditemukan"
+            echo "ERROR: BoomMusic.app tidak ditemukan"
             exit 1
           fi
 
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
+
+      - name: Package App
+        run: |
+          rm -rf Payload
           mkdir -p Payload
+
           cp -R "$APP_PATH" Payload/BoomMusic.app
 
           zip -r BoomMusic-Simulator.zip Payload
 
-      - name: Upload build
+      - name: Upload Build
         uses: actions/upload-artifact@v4
         with:
           name: BoomMusic-Simulator
