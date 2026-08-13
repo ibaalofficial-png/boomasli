@@ -16,63 +16,70 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Verify Source
+      - name: Verify Repository
         run: |
           set -e
+
+          test -f BoomMusic.xcodeproj/project.pbxproj
 
           test -f BoomMusic/AppDelegate.swift
           test -f BoomMusic/SceneDelegate.swift
           test -f BoomMusic/ViewController.swift
           test -f BoomMusic/AudioManager.swift
-
           test -f BoomMusic/Info.plist
 
           test -f BoomMusic/www/index.html
           test -f BoomMusic/www/Player.js
+          test -f BoomMusic/www/Equalizer.js
+          test -f BoomMusic/www/Visualizer.js
 
-          echo "SOURCE OK"
+          echo "REPOSITORY OK"
 
-      - name: Create XcodeGen Project
+      - name: Fix Project Paths
         run: |
-          cat > project.yml <<'EOF'
-          name: BoomMusic
+          set -e
 
-          options:
-            deploymentTarget:
-              iOS: "15.0"
+          python3 <<'PY'
+          from pathlib import Path
 
-          settings:
-            base:
-              PRODUCT_BUNDLE_IDENTIFIER: com.boommusic.app
-              PRODUCT_NAME: BoomMusic
-              SWIFT_VERSION: "5.0"
-              TARGETED_DEVICE_FAMILY: "1,2"
-              INFOPLIST_FILE: BoomMusic/Info.plist
-              GENERATE_INFOPLIST_FILE: NO
+          p = Path("BoomMusic.xcodeproj/project.pbxproj")
+          s = p.read_text()
 
-          targets:
-            BoomMusic:
-              type: application
-              platform: iOS
+          replacements = {
+              "path = AppDelegate.swift;":
+                  "path = BoomMusic/AppDelegate.swift;",
 
-              sources:
-                - path: BoomMusic/AppDelegate.swift
-                - path: BoomMusic/SceneDelegate.swift
-                - path: BoomMusic/ViewController.swift
-                - path: BoomMusic/AudioManager.swift
+              "path = SceneDelegate.swift;":
+                  "path = BoomMusic/SceneDelegate.swift;",
 
-              settings:
-                base:
-                  CODE_SIGNING_ALLOWED: NO
-                  CODE_SIGNING_REQUIRED: NO
-          EOF
+              "path = ViewController.swift;":
+                  "path = BoomMusic/ViewController.swift;",
 
-          xcodegen generate
+              "path = AudioManager.swift;":
+                  "path = BoomMusic/AudioManager.swift;",
 
-      - name: Build
+              "path = www;":
+                  "path = BoomMusic/www;",
+
+              "INFOPLIST_FILE = Info.plist;":
+                  "INFOPLIST_FILE = BoomMusic/Info.plist;",
+          }
+
+          for old, new in replacements.items():
+              s = s.replace(old, new)
+
+          p.write_text(s)
+          PY
+
+          echo "PROJECT PATHS OK"
+
+      - name: Show Project
+        run: |
+          xcodebuild \
+            -project BoomMusic.xcodeproj \
+            -list
+
+      - name: Build iPhoneOS
         run: |
           set -e
 
@@ -86,9 +93,10 @@ jobs:
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
+            ONLY_ACTIVE_ARCH=NO \
             build
 
-      - name: Find App
+      - name: Locate App
         run: |
           set -e
 
@@ -101,15 +109,18 @@ jobs:
 
           echo "$APP" > app_path.txt
 
-          echo "=== APP PATH ==="
+          echo "=== APP ==="
           echo "$APP"
+
+          echo "=== SIZE ==="
+          du -sh "$APP"
 
           echo "=== EXECUTABLE ==="
           ls -lh "$APP/BoomMusic"
 
           file "$APP/BoomMusic"
 
-      - name: Inject Web Content
+      - name: Ensure Web Content
         run: |
           set -e
 
@@ -125,6 +136,10 @@ jobs:
 
           test -f "$APP/www/index.html"
           test -f "$APP/www/Player.js"
+          test -f "$APP/www/Equalizer.js"
+          test -f "$APP/www/Visualizer.js"
+
+          echo "WEB CONTENT OK"
 
       - name: Prepare Payload
         run: |
@@ -133,24 +148,23 @@ jobs:
           APP=$(cat app_path.txt)
 
           rm -rf Payload
+
           mkdir -p Payload
 
           cp -R "$APP" Payload/BoomMusic.app
-
-          echo "=== PAYLOAD ==="
-          find Payload/BoomMusic.app -maxdepth 2 -type f -print
-
-          echo "=== PAYLOAD EXECUTABLE ==="
-          ls -lh Payload/BoomMusic.app/BoomMusic
-
-          echo "=== PAYLOAD WWW ==="
-          ls -lh Payload/BoomMusic.app/www/
 
           test -f Payload/BoomMusic.app/BoomMusic
           test -f Payload/BoomMusic.app/www/index.html
           test -f Payload/BoomMusic.app/www/Player.js
 
-          echo "PAYLOAD OK"
+          echo "=== PAYLOAD SIZE ==="
+          du -sh Payload/BoomMusic.app
+
+          echo "=== PAYLOAD ==="
+          find Payload/BoomMusic.app \
+            -maxdepth 2 \
+            -type f \
+            -print
 
       - name: Create IPA
         run: |
@@ -158,15 +172,11 @@ jobs:
 
           rm -f BoomMusic.ipa
 
-          ditto \
-            -c \
-            -k \
-            --sequesterRsrc \
-            --keepParent \
-            Payload \
-            BoomMusic.zip
+          cd Payload
 
-          mv BoomMusic.zip BoomMusic.ipa
+          zip -qry ../BoomMusic.ipa BoomMusic.app
+
+          cd ..
 
           echo "=== IPA ==="
           ls -lh BoomMusic.ipa
@@ -175,23 +185,27 @@ jobs:
         run: |
           set -e
 
-          rm -rf ipa-check
-          mkdir ipa-check
+          rm -rf verify
+          mkdir verify
 
-          unzip -q BoomMusic.ipa -d ipa-check
+          unzip -q BoomMusic.ipa -d verify
 
-          echo "=== EXTRACTED ==="
-          find ipa-check/Payload/BoomMusic.app -maxdepth 2 -type f -print
+          APP="verify/Payload/BoomMusic.app"
+
+          test -f "$APP/BoomMusic"
+          test -f "$APP/www/index.html"
+          test -f "$APP/www/Player.js"
+          test -f "$APP/www/Equalizer.js"
+          test -f "$APP/www/Visualizer.js"
+
+          echo "=== FINAL APP ==="
+          du -sh "$APP"
 
           echo "=== EXECUTABLE ==="
-          ls -lh ipa-check/Payload/BoomMusic.app/BoomMusic
+          file "$APP/BoomMusic"
 
           echo "=== WEB ==="
-          ls -lh ipa-check/Payload/BoomMusic.app/www/
-
-          test -f ipa-check/Payload/BoomMusic.app/BoomMusic
-          test -f ipa-check/Payload/BoomMusic.app/www/index.html
-          test -f ipa-check/Payload/BoomMusic.app/www/Player.js
+          find "$APP/www" -type f -print
 
           echo ""
           echo "=============================="
