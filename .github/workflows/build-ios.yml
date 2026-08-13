@@ -1,3 +1,213 @@
+name: Boom Music IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: |
+          brew install xcodegen
+
+      - name: Verify Source
+        run: |
+          set -e
+
+          echo "=== CHECK SOURCE ==="
+
+          test -f BoomMusic/AppDelegate.swift
+          test -f BoomMusic/SceneDelegate.swift
+          test -f BoomMusic/ViewController.swift
+          test -f BoomMusic/AudioManager.swift
+          test -f BoomMusic/Info.plist
+
+          test -f BoomMusic/www/index.html
+          test -f BoomMusic/www/Player.js
+          test -f BoomMusic/www/Equalizer.js
+          test -f BoomMusic/www/Visualizer.js
+
+          echo "SOURCE OK"
+
+      - name: Generate Xcode Project
+        run: |
+          set -e
+
+          rm -rf Generated
+          mkdir -p Generated
+
+          cat > Generated/project.yml <<'EOF'
+          name: BoomMusic
+
+          options:
+            deploymentTarget:
+              iOS: "15.0"
+
+          settings:
+            base:
+              PRODUCT_BUNDLE_IDENTIFIER: com.boommusic.app
+              PRODUCT_NAME: BoomMusic
+              SWIFT_VERSION: "5.0"
+              TARGETED_DEVICE_FAMILY: "1,2"
+              INFOPLIST_FILE: ../BoomMusic/Info.plist
+              GENERATE_INFOPLIST_FILE: NO
+
+          targets:
+            BoomMusic:
+              type: application
+              platform: iOS
+
+              sources:
+                - path: ../BoomMusic/AppDelegate.swift
+                - path: ../BoomMusic/SceneDelegate.swift
+                - path: ../BoomMusic/ViewController.swift
+                - path: ../BoomMusic/AudioManager.swift
+
+              settings:
+                base:
+                  CODE_SIGNING_ALLOWED: NO
+                  CODE_SIGNING_REQUIRED: NO
+                  DEVELOPMENT_TEAM: ""
+          EOF
+
+          cd Generated
+
+          xcodegen generate
+
+          test -f BoomMusic.xcodeproj/project.pbxproj
+
+          echo "=== XCODE PROJECT CREATED ==="
+
+      - name: Show Xcode Project
+        run: |
+          set -e
+
+          xcodebuild \
+            -project Generated/BoomMusic.xcodeproj \
+            -list
+
+      - name: Build iPhoneOS
+        run: |
+          set -e
+
+          rm -rf build
+
+          echo "=== BUILD ==="
+
+          xcodebuild \
+            -project Generated/BoomMusic.xcodeproj \
+            -scheme BoomMusic \
+            -sdk iphoneos \
+            -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            build
+
+          echo "BUILD OK"
+
+      - name: Locate Application
+        run: |
+          set -e
+
+          APP=$(find build \
+            -type d \
+            -name "BoomMusic.app" \
+            -print -quit)
+
+          if [ -z "$APP" ]; then
+            echo "ERROR: BoomMusic.app tidak ditemukan"
+            exit 1
+          fi
+
+          echo "$APP" > app_path.txt
+
+          echo "=== APP PATH ==="
+          echo "$APP"
+
+          echo "=== APP SIZE ==="
+          du -sh "$APP"
+
+          echo "=== EXECUTABLE ==="
+          ls -lh "$APP/BoomMusic"
+
+          file "$APP/BoomMusic"
+
+          echo "EXECUTABLE OK"
+
+      - name: Inject Web Application
+        run: |
+          set -e
+
+          APP=$(cat app_path.txt)
+
+          echo "=== INJECT WWW ==="
+
+          rm -rf "$APP/www"
+
+          mkdir -p "$APP/www"
+
+          cp -R BoomMusic/www/. "$APP/www/"
+
+          echo "=== WWW FILES ==="
+
+          find "$APP/www" \
+            -type f \
+            -print
+
+          test -f "$APP/www/index.html"
+          test -f "$APP/www/Player.js"
+          test -f "$APP/www/Equalizer.js"
+          test -f "$APP/www/Visualizer.js"
+
+          echo "WWW OK"
+
+      - name: Prepare Payload
+        run: |
+          set -e
+
+          APP=$(cat app_path.txt)
+
+          rm -rf Payload
+
+          mkdir -p Payload
+
+          cp -R "$APP" Payload/BoomMusic.app
+
+          echo "=== PAYLOAD ==="
+
+          find Payload/BoomMusic.app \
+            -maxdepth 2 \
+            -type f \
+            -print
+
+          echo "=== PAYLOAD SIZE ==="
+
+          du -sh Payload/BoomMusic.app
+
+          echo "=== PAYLOAD EXECUTABLE ==="
+
+          file Payload/BoomMusic.app/BoomMusic
+
+          test -f Payload/BoomMusic.app/BoomMusic
+          test -f Payload/BoomMusic.app/www/index.html
+          test -f Payload/BoomMusic.app/www/Player.js
+          test -f Payload/BoomMusic.app/www/Equalizer.js
+          test -f Payload/BoomMusic.app/www/Visualizer.js
+
+          echo "PAYLOAD OK"
+
       - name: Create IPA
         run: |
           set -e
@@ -27,7 +237,8 @@
 
           cd ..
 
-          echo "=== IPA ==="
+          echo "=== FINAL IPA ==="
+
           ls -lh BoomMusic.ipa
 
       - name: Verify IPA
@@ -42,7 +253,10 @@
 
           echo "=== EXTRACTED IPA ==="
 
-          find verify -maxdepth 3 -type f -print
+          find verify \
+            -maxdepth 3 \
+            -type f \
+            -print
 
           APP="verify/Payload/BoomMusic.app"
 
@@ -51,18 +265,23 @@
             exit 1
           fi
 
-          echo "=== FINAL APP ==="
+          echo "=== FINAL APP SIZE ==="
+
           du -sh "$APP"
 
-          echo "=== EXECUTABLE ==="
+          echo "=== FINAL EXECUTABLE ==="
 
           file "$APP/BoomMusic"
 
+          ls -lh "$APP/BoomMusic"
+
           test -f "$APP/BoomMusic"
 
-          echo "=== WEB ==="
+          echo "=== FINAL WEB ==="
 
-          find "$APP/www" -type f -print
+          find "$APP/www" \
+            -type f \
+            -print
 
           test -f "$APP/www/index.html"
           test -f "$APP/www/Player.js"
@@ -70,9 +289,9 @@
           test -f "$APP/www/Visualizer.js"
 
           echo ""
-          echo "=============================="
-          echo " BOOM MUSIC IPA READY"
-          echo "=============================="
+          echo "======================================"
+          echo "       BOOM MUSIC IPA READY"
+          echo "======================================"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
