@@ -1,45 +1,205 @@
-name: Diagnose Boom Music
+name: Boom Music IPA
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
 
 jobs:
-  diagnose:
+  build:
     runs-on: macos-latest
 
     steps:
+
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Repository Structure
-        run: |
-          echo "=== ROOT ==="
-          find . -maxdepth 3 -type f | sort
+      - name: Install XcodeGen
+        run: brew install xcodegen
 
-      - name: Xcode Project
+      - name: Verify Source
         run: |
-          echo "=== XCODE PROJECT ==="
-          find . -name "*.xcodeproj" -print
-          find . -name "project.pbxproj" -print
+          set -e
 
-      - name: Swift Sources
+          test -f BoomMusic/AppDelegate.swift
+          test -f BoomMusic/SceneDelegate.swift
+          test -f BoomMusic/ViewController.swift
+          test -f BoomMusic/AudioManager.swift
+          test -f BoomMusic/www/index.html
+
+          echo "All source files found."
+
+      - name: Create Project Specification
         run: |
-          echo "=== SWIFT ==="
-          find . -name "*.swift" -print
+          cat > project.yml <<'EOF'
+          name: BoomMusic
 
-      - name: Web Files
+          options:
+            minimumXcodeGenVersion: 2.38.0
+            deploymentTarget:
+              iOS: "15.0"
+
+          settings:
+            base:
+              PRODUCT_BUNDLE_IDENTIFIER: com.boommusic.app
+              PRODUCT_NAME: BoomMusic
+              SWIFT_VERSION: "5.0"
+              TARGETED_DEVICE_FAMILY: "1,2"
+              INFOPLIST_FILE: BoomMusic/Info.plist
+              GENERATE_INFOPLIST_FILE: NO
+
+          targets:
+            BoomMusic:
+              type: application
+              platform: iOS
+
+              sources:
+                - path: BoomMusic/AppDelegate.swift
+                - path: BoomMusic/SceneDelegate.swift
+                - path: BoomMusic/ViewController.swift
+                - path: BoomMusic/AudioManager.swift
+
+              resources:
+                - path: BoomMusic/www
+
+              settings:
+                base:
+                  CODE_SIGNING_ALLOWED: NO
+                  CODE_SIGNING_REQUIRED: NO
+          EOF
+
+      - name: Generate Xcode Project
         run: |
-          echo "=== WWW ==="
-          find BoomMusic/www -type f -print 2>/dev/null || true
+          xcodegen generate
 
-      - name: Existing Xcode Schemes
+          echo "=== GENERATED PROJECT ==="
+          find BoomMusic.xcodeproj -maxdepth 2 -type f -print
+
+      - name: Show Xcode Targets
         run: |
-          echo "=== SCHEMES ==="
+          xcodebuild \
+            -project BoomMusic.xcodeproj \
+            -list
 
-          if [ -d "BoomMusic.xcodeproj" ]; then
-            xcodebuild \
-              -project BoomMusic.xcodeproj \
-              -list
-          else
-            echo "NO XCODE PROJECT"
+      - name: Build iPhoneOS App
+        run: |
+          set -e
+
+          rm -rf build
+
+          xcodebuild \
+            -project BoomMusic.xcodeproj \
+            -scheme BoomMusic \
+            -sdk iphoneos \
+            -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build
+
+      - name: Locate App
+        run: |
+          set -e
+
+          echo "=== APP FILES ==="
+
+          find build \
+            -type d \
+            -name "BoomMusic.app" \
+            -print
+
+          APP=$(find build \
+            -type d \
+            -name "BoomMusic.app" \
+            -print -quit)
+
+          if [ -z "$APP" ]; then
+            echo "ERROR: BoomMusic.app tidak ditemukan"
+            exit 1
           fi
+
+          echo "$APP" > app_path.txt
+
+          echo "=== APP SIZE ==="
+          du -sh "$APP"
+
+          echo "=== APP CONTENT ==="
+          find "$APP" -maxdepth 2 -type f -print
+
+      - name: Verify Executable
+        run: |
+          set -e
+
+          APP=$(cat app_path.txt)
+
+          echo "=== EXECUTABLE ==="
+
+          if [ ! -f "$APP/BoomMusic" ]; then
+            echo "ERROR: executable BoomMusic tidak ditemukan"
+            exit 1
+          fi
+
+          ls -lh "$APP/BoomMusic"
+          file "$APP/BoomMusic"
+
+      - name: Verify Web Files
+        run: |
+          set -e
+
+          APP=$(cat app_path.txt)
+
+          echo "=== WEB ==="
+
+          find "$APP/www" -type f -print
+
+          test -f "$APP/www/index.html"
+          test -f "$APP/www/Player.js"
+
+          echo "WEB OK"
+
+      - name: Create IPA
+        run: |
+          set -e
+
+          APP=$(cat app_path.txt)
+
+          rm -rf Payload BoomMusic.ipa
+          mkdir Payload
+
+          cp -R "$APP" Payload/BoomMusic.app
+
+          cd Payload
+          zip -qry ../BoomMusic.ipa BoomMusic.app
+          cd ..
+
+          echo "=== IPA ==="
+          ls -lh BoomMusic.ipa
+
+      - name: Verify IPA
+        run: |
+          set -e
+
+          echo "=== IPA CONTENT ==="
+
+          unzip -l BoomMusic.ipa
+
+          echo "=== EXECUTABLE CHECK ==="
+
+          unzip -l BoomMusic.ipa \
+            | grep "Payload/BoomMusic.app/BoomMusic"
+
+          echo "=== WEB CHECK ==="
+
+          unzip -l BoomMusic.ipa \
+            | grep "Payload/BoomMusic.app/www/index.html"
+
+          echo "=== SUCCESS ==="
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: BoomMusic-IPA
+          path: BoomMusic.ipa
+          if-no-files-found: error
