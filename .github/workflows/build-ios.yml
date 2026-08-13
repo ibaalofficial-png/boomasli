@@ -28,18 +28,19 @@ jobs:
           test -f BoomMusic/ViewController.swift
           test -f BoomMusic/AudioManager.swift
 
+          test -f BoomMusic/Info.plist
+
           test -f BoomMusic/www/index.html
           test -f BoomMusic/www/Player.js
 
           echo "SOURCE OK"
 
-      - name: Create Project Specification
+      - name: Create XcodeGen Project
         run: |
           cat > project.yml <<'EOF'
           name: BoomMusic
 
           options:
-            minimumXcodeGenVersion: 2.38.0
             deploymentTarget:
               iOS: "15.0"
 
@@ -69,11 +70,9 @@ jobs:
                   CODE_SIGNING_REQUIRED: NO
           EOF
 
-      - name: Generate Xcode Project
-        run: |
           xcodegen generate
 
-      - name: Build iPhoneOS
+      - name: Build
         run: |
           set -e
 
@@ -89,7 +88,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             build
 
-      - name: Locate App
+      - name: Find App
         run: |
           set -e
 
@@ -98,96 +97,106 @@ jobs:
             -name "BoomMusic.app" \
             -print -quit)
 
-          if [ -z "$APP" ]; then
-            echo "ERROR: BoomMusic.app tidak ditemukan"
-            exit 1
-          fi
+          test -n "$APP"
 
           echo "$APP" > app_path.txt
 
-          echo "=== APP ==="
+          echo "=== APP PATH ==="
           echo "$APP"
-
-          echo "=== SIZE ==="
-          du -sh "$APP"
 
           echo "=== EXECUTABLE ==="
           ls -lh "$APP/BoomMusic"
 
           file "$APP/BoomMusic"
 
-      - name: Inject Web App
+      - name: Inject Web Content
         run: |
           set -e
 
           APP=$(cat app_path.txt)
 
-          echo "=== COPYING WWW ==="
-
           rm -rf "$APP/www"
-
           mkdir -p "$APP/www"
 
           cp -R BoomMusic/www/. "$APP/www/"
 
-          echo "=== WWW CONTENT ==="
-
+          echo "=== WWW ==="
           find "$APP/www" -type f -print
 
           test -f "$APP/www/index.html"
           test -f "$APP/www/Player.js"
 
-          echo "WWW OK"
-
-      - name: Create IPA
+      - name: Prepare Payload
         run: |
           set -e
 
           APP=$(cat app_path.txt)
 
-          rm -rf Payload BoomMusic.ipa
-
-          mkdir Payload
+          rm -rf Payload
+          mkdir -p Payload
 
           cp -R "$APP" Payload/BoomMusic.app
 
-          echo "=== FINAL APP SIZE ==="
-          du -sh Payload/BoomMusic.app
+          echo "=== PAYLOAD ==="
+          find Payload/BoomMusic.app -maxdepth 2 -type f -print
 
-          echo "=== CREATE IPA ==="
+          echo "=== PAYLOAD EXECUTABLE ==="
+          ls -lh Payload/BoomMusic.app/BoomMusic
 
-          cd Payload
+          echo "=== PAYLOAD WWW ==="
+          ls -lh Payload/BoomMusic.app/www/
 
-          zip -qry ../BoomMusic.ipa BoomMusic.app
+          test -f Payload/BoomMusic.app/BoomMusic
+          test -f Payload/BoomMusic.app/www/index.html
+          test -f Payload/BoomMusic.app/www/Player.js
 
-          cd ..
+          echo "PAYLOAD OK"
 
-          echo "=== FINAL IPA ==="
+      - name: Create IPA
+        run: |
+          set -e
+
+          rm -f BoomMusic.ipa
+
+          ditto \
+            -c \
+            -k \
+            --sequesterRsrc \
+            --keepParent \
+            Payload \
+            BoomMusic.zip
+
+          mv BoomMusic.zip BoomMusic.ipa
+
+          echo "=== IPA ==="
           ls -lh BoomMusic.ipa
 
       - name: Verify IPA
         run: |
           set -e
 
-          echo "=== CHECK EXECUTABLE ==="
+          rm -rf ipa-check
+          mkdir ipa-check
 
-          unzip -l BoomMusic.ipa \
-            | grep "Payload/BoomMusic.app/BoomMusic"
+          unzip -q BoomMusic.ipa -d ipa-check
 
-          echo "=== CHECK INDEX ==="
+          echo "=== EXTRACTED ==="
+          find ipa-check/Payload/BoomMusic.app -maxdepth 2 -type f -print
 
-          unzip -l BoomMusic.ipa \
-            | grep "Payload/BoomMusic.app/www/index.html"
+          echo "=== EXECUTABLE ==="
+          ls -lh ipa-check/Payload/BoomMusic.app/BoomMusic
 
-          echo "=== CHECK PLAYER ==="
+          echo "=== WEB ==="
+          ls -lh ipa-check/Payload/BoomMusic.app/www/
 
-          unzip -l BoomMusic.ipa \
-            | grep "Payload/BoomMusic.app/www/Player.js"
+          test -f ipa-check/Payload/BoomMusic.app/BoomMusic
+          test -f ipa-check/Payload/BoomMusic.app/www/index.html
+          test -f ipa-check/Payload/BoomMusic.app/www/Player.js
 
           echo ""
-          echo "=========================="
+          echo "=============================="
           echo " BOOM MUSIC IPA READY"
-          echo "=========================="
+          echo "=============================="
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
