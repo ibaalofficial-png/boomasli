@@ -1,4 +1,4 @@
-name: Build Boom Music iOS
+name: Build Boom Music IPA
 
 on:
   workflow_dispatch:
@@ -12,17 +12,11 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check Project Files
-        run: |
-          echo "=== BoomMusic ==="
-          find BoomMusic -maxdepth 3 -type f | sort
-
       - name: Install XcodeGen
-        run: |
-          brew install xcodegen
+        run: brew install xcodegen
 
       - name: Create Xcode Project
         run: |
@@ -60,58 +54,27 @@ jobs:
                 base:
                   PRODUCT_NAME: BoomMusic
                   GENERATE_INFOPLIST_FILE: NO
-                  CODE_SIGNING_ALLOWED: NO
-                  CODE_SIGNING_REQUIRED: NO
           EOF
 
       - name: Generate Xcode Project
         working-directory: Build
-        run: |
-          xcodegen generate
+        run: xcodegen generate
 
-      - name: Verify Xcode Project
-        run: |
-          echo "=== Generated Project ==="
-          find Build -maxdepth 3 -type f | sort
-
-      - name: Build for iOS Simulator
+      - name: Archive for iPhone
         working-directory: Build
         run: |
           xcodebuild \
             -project BoomMusic.xcodeproj \
             -scheme BoomMusic \
-            -sdk iphonesimulator \
+            -sdk iphoneos \
             -configuration Release \
-            -destination 'generic/platform=iOS Simulator' \
+            -archivePath "$GITHUB_WORKSPACE/BoomMusic.xcarchive" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            build
+            archive
 
-      - name: Find Built App
-        run: |
-          APP_PATH=$(find "$HOME/Library/Developer/Xcode/DerivedData" \
-            -type d \
-            -path "*/Build/Products/Release-iphonesimulator/BoomMusic.app" \
-            -print -quit)
-
-          if [ -z "$APP_PATH" ]; then
-            echo "ERROR: BoomMusic.app tidak ditemukan"
-            exit 1
-          fi
-
-          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
-
-      - name: Package App
-        run: |
-          rm -rf Payload
-          mkdir -p Payload
-
-          cp -R "$APP_PATH" Payload/BoomMusic.app
-
-          zip -r BoomMusic-Simulator.zip Payload
-
-      - name: Upload Build
+      - name: Upload Archive
         uses: actions/upload-artifact@v4
         with:
-          name: BoomMusic-Simulator
-          path: BoomMusic-Simulator.zip
+          name: BoomMusic-iPhone-Archive
+          path: BoomMusic.xcarchive
