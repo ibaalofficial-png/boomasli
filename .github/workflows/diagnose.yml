@@ -1,0 +1,45 @@
+name: Diagnose Boom Music
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Repository Structure
+        run: |
+          echo "=== ROOT ==="
+          find . -maxdepth 3 -type f | sort
+
+      - name: Xcode Project
+        run: |
+          echo "=== XCODE PROJECT ==="
+          find . -name "*.xcodeproj" -print
+          find . -name "project.pbxproj" -print
+
+      - name: Swift Sources
+        run: |
+          echo "=== SWIFT ==="
+          find . -name "*.swift" -print
+
+      - name: Web Files
+        run: |
+          echo "=== WWW ==="
+          find BoomMusic/www -type f -print 2>/dev/null || true
+
+      - name: Existing Xcode Schemes
+        run: |
+          echo "=== SCHEMES ==="
+
+          if [ -d "BoomMusic.xcodeproj" ]; then
+            xcodebuild \
+              -project BoomMusic.xcodeproj \
+              -list
+          else
+            echo "NO XCODE PROJECT"
+          fi
