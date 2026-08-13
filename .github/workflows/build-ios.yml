@@ -12,11 +12,23 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - name: Checkout
+
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Install XcodeGen
-        run: brew install xcodegen
+        run: |
+          brew install xcodegen
+
+      - name: Verify Web Files
+        run: |
+          test -f BoomMusic/www/index.html
+          test -f BoomMusic/www/Player.js
+          test -f BoomMusic/www/Equalizer.js
+          test -f BoomMusic/www/Visualizer.js
+
+          echo "Web files OK:"
+          find BoomMusic/www -type f | sort
 
       - name: Create Xcode Project
         run: |
@@ -35,6 +47,7 @@ jobs:
               SWIFT_VERSION: "5.0"
               TARGETED_DEVICE_FAMILY: "1,2"
               INFOPLIST_FILE: ../BoomMusic/Info.plist
+              GENERATE_INFOPLIST_FILE: NO
 
           targets:
             BoomMusic:
@@ -53,14 +66,20 @@ jobs:
               settings:
                 base:
                   PRODUCT_NAME: BoomMusic
-                  GENERATE_INFOPLIST_FILE: NO
+                  CODE_SIGNING_ALLOWED: NO
+                  CODE_SIGNING_REQUIRED: NO
           EOF
 
       - name: Generate Xcode Project
         working-directory: Build
-        run: xcodegen generate
+        run: |
+          xcodegen generate
 
-      - name: Archive
+      - name: Show Project
+        run: |
+          find Build -maxdepth 3 -type f | sort
+
+      - name: Archive for iPhone
         working-directory: Build
         run: |
           xcodebuild \
@@ -73,22 +92,58 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             archive
 
-      - name: Create IPA
+      - name: Verify Archive
         run: |
-          APP_PATH="BoomMusic.xcarchive/Products/Applications/BoomMusic.app"
+          APP="BoomMusic.xcarchive/Products/Applications/BoomMusic.app"
 
-          if [ ! -d "$APP_PATH" ]; then
-            echo "BoomMusic.app tidak ditemukan"
+          if [ ! -d "$APP" ]; then
+            echo "ERROR: BoomMusic.app tidak ditemukan"
+            find BoomMusic.xcarchive -maxdepth 6 -print
             exit 1
           fi
 
-          mkdir -p Payload
-          cp -R "$APP_PATH" Payload/BoomMusic.app
+          echo "=== APP SIZE ==="
+          du -sh "$APP"
 
-          zip -r BoomMusic.ipa Payload
+          echo "=== APP CONTENT ==="
+          find "$APP" -maxdepth 3 -type f | sort
+
+          echo "=== WEB CONTENT ==="
+          find "$APP/www" -type f | sort
+
+          test -f "$APP/www/index.html"
+          test -f "$APP/www/Player.js"
+
+      - name: Create IPA
+        run: |
+          rm -rf Payload BoomMusic.ipa
+
+          mkdir -p Payload
+
+          cp -R \
+            "BoomMusic.xcarchive/Products/Applications/BoomMusic.app" \
+            "Payload/BoomMusic.app"
+
+          echo "=== PAYLOAD ==="
+          du -sh Payload/BoomMusic.app
+
+          echo "=== PAYLOAD WEB ==="
+          find Payload/BoomMusic.app/www -type f | sort
+
+          zip -qry BoomMusic.ipa Payload
+
+          echo "=== IPA SIZE ==="
+          ls -lh BoomMusic.ipa
+
+      - name: Verify IPA
+        run: |
+          unzip -l BoomMusic.ipa | head -100
+
+          unzip -l BoomMusic.ipa | grep "Payload/BoomMusic.app/www/index.html"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: BoomMusic-IPA
           path: BoomMusic.ipa
+          if-no-files-found: error
