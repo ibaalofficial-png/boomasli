@@ -27,9 +27,11 @@ jobs:
           test -f BoomMusic/SceneDelegate.swift
           test -f BoomMusic/ViewController.swift
           test -f BoomMusic/AudioManager.swift
-          test -f BoomMusic/www/index.html
 
-          echo "All source files found."
+          test -f BoomMusic/www/index.html
+          test -f BoomMusic/www/Player.js
+
+          echo "SOURCE OK"
 
       - name: Create Project Specification
         run: |
@@ -61,9 +63,6 @@ jobs:
                 - path: BoomMusic/ViewController.swift
                 - path: BoomMusic/AudioManager.swift
 
-              resources:
-                - path: BoomMusic/www
-
               settings:
                 base:
                   CODE_SIGNING_ALLOWED: NO
@@ -74,16 +73,7 @@ jobs:
         run: |
           xcodegen generate
 
-          echo "=== GENERATED PROJECT ==="
-          find BoomMusic.xcodeproj -maxdepth 2 -type f -print
-
-      - name: Show Xcode Targets
-        run: |
-          xcodebuild \
-            -project BoomMusic.xcodeproj \
-            -list
-
-      - name: Build iPhoneOS App
+      - name: Build iPhoneOS
         run: |
           set -e
 
@@ -103,13 +93,6 @@ jobs:
         run: |
           set -e
 
-          echo "=== APP FILES ==="
-
-          find build \
-            -type d \
-            -name "BoomMusic.app" \
-            -print
-
           APP=$(find build \
             -type d \
             -name "BoomMusic.app" \
@@ -122,42 +105,39 @@ jobs:
 
           echo "$APP" > app_path.txt
 
-          echo "=== APP SIZE ==="
+          echo "=== APP ==="
+          echo "$APP"
+
+          echo "=== SIZE ==="
           du -sh "$APP"
 
-          echo "=== APP CONTENT ==="
-          find "$APP" -maxdepth 2 -type f -print
-
-      - name: Verify Executable
-        run: |
-          set -e
-
-          APP=$(cat app_path.txt)
-
           echo "=== EXECUTABLE ==="
-
-          if [ ! -f "$APP/BoomMusic" ]; then
-            echo "ERROR: executable BoomMusic tidak ditemukan"
-            exit 1
-          fi
-
           ls -lh "$APP/BoomMusic"
+
           file "$APP/BoomMusic"
 
-      - name: Verify Web Files
+      - name: Inject Web App
         run: |
           set -e
 
           APP=$(cat app_path.txt)
 
-          echo "=== WEB ==="
+          echo "=== COPYING WWW ==="
+
+          rm -rf "$APP/www"
+
+          mkdir -p "$APP/www"
+
+          cp -R BoomMusic/www/. "$APP/www/"
+
+          echo "=== WWW CONTENT ==="
 
           find "$APP/www" -type f -print
 
           test -f "$APP/www/index.html"
           test -f "$APP/www/Player.js"
 
-          echo "WEB OK"
+          echo "WWW OK"
 
       - name: Create IPA
         run: |
@@ -166,36 +146,48 @@ jobs:
           APP=$(cat app_path.txt)
 
           rm -rf Payload BoomMusic.ipa
+
           mkdir Payload
 
           cp -R "$APP" Payload/BoomMusic.app
 
+          echo "=== FINAL APP SIZE ==="
+          du -sh Payload/BoomMusic.app
+
+          echo "=== CREATE IPA ==="
+
           cd Payload
+
           zip -qry ../BoomMusic.ipa BoomMusic.app
+
           cd ..
 
-          echo "=== IPA ==="
+          echo "=== FINAL IPA ==="
           ls -lh BoomMusic.ipa
 
       - name: Verify IPA
         run: |
           set -e
 
-          echo "=== IPA CONTENT ==="
-
-          unzip -l BoomMusic.ipa
-
-          echo "=== EXECUTABLE CHECK ==="
+          echo "=== CHECK EXECUTABLE ==="
 
           unzip -l BoomMusic.ipa \
             | grep "Payload/BoomMusic.app/BoomMusic"
 
-          echo "=== WEB CHECK ==="
+          echo "=== CHECK INDEX ==="
 
           unzip -l BoomMusic.ipa \
             | grep "Payload/BoomMusic.app/www/index.html"
 
-          echo "=== SUCCESS ==="
+          echo "=== CHECK PLAYER ==="
+
+          unzip -l BoomMusic.ipa \
+            | grep "Payload/BoomMusic.app/www/Player.js"
+
+          echo ""
+          echo "=========================="
+          echo " BOOM MUSIC IPA READY"
+          echo "=========================="
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
