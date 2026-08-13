@@ -1,110 +1,96 @@
 import UIKit
 import WebKit
 
-class ViewController: UIViewController,
-                      WKScriptMessageHandler,
-                      WKNavigationDelegate {
+final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate {
 
-    var webView: WKWebView!
+    private var webView: WKWebView!
 
     override func viewDidLoad() {
         super.viewDidLoad()
 
         setupWebView()
-        loadWebContent()
+        loadLocalWebApp()
     }
 
     private func setupWebView() {
 
-        let config = WKWebViewConfiguration()
+        let configuration = WKWebViewConfiguration()
 
-        config.allowsInlineMediaPlayback = true
-        config.mediaTypesRequiringUserActionForPlayback = []
+        configuration.allowsInlineMediaPlayback = true
 
-        config.userContentController.add(
-            self,
-            name: "boomBridge"
-        )
+        if #available(iOS 10.0, *) {
+            configuration.mediaTypesRequiringUserActionForPlayback = []
+        }
+
+        let preferences = WKPreferences()
+        preferences.javaScriptEnabled = true
+
+        configuration.preferences = preferences
 
         webView = WKWebView(
-            frame: view.bounds,
-            configuration: config
+            frame: .zero,
+            configuration: configuration
         )
 
-        webView.autoresizingMask = [
-            .flexibleWidth,
-            .flexibleHeight
-        ]
-
         webView.navigationDelegate = self
-        webView.scrollView.isScrollEnabled = false
-        webView.scrollView.contentInsetAdjustmentBehavior = .never
+        webView.uiDelegate = self
+
+        webView.translatesAutoresizingMaskIntoConstraints = false
 
         view.addSubview(webView)
 
-        AudioManager.shared.webView = webView
+        NSLayoutConstraint.activate([
+            webView.topAnchor.constraint(equalTo: view.topAnchor),
+            webView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
+        ])
+
+        webView.allowsBackForwardNavigationGestures = false
+
+        webView.scrollView.bounces = false
+        webView.scrollView.alwaysBounceVertical = false
+        webView.scrollView.alwaysBounceHorizontal = false
     }
 
-    private func loadWebContent() {
+    private func loadLocalWebApp() {
 
-        guard let indexURL = Bundle.main.url(
-            forResource: "index",
-            withExtension: "html",
-            subdirectory: "www"
+        guard let wwwURL = Bundle.main.url(
+            forResource: "www",
+            withExtension: nil
         ) else {
-            print("ERROR: www/index.html tidak ditemukan")
+
+            print("ERROR: folder www tidak ditemukan di Bundle")
+
+            return
+        }
+
+        let indexURL = wwwURL.appendingPathComponent("index.html")
+
+        guard FileManager.default.fileExists(
+            atPath: indexURL.path
+        ) else {
+
+            print("ERROR: index.html tidak ditemukan")
+
             return
         }
 
         webView.loadFileURL(
             indexURL,
-            allowingReadAccessTo: indexURL.deletingLastPathComponent()
+            allowingReadAccessTo: wwwURL
         )
     }
 
-    func userContentController(
-        _ userContentController: WKUserContentController,
-        didReceive message: WKScriptMessage
-    ) {
-
-        guard message.name == "boomBridge",
-              let data = message.body as? [String: Any]
-        else {
-            return
-        }
-
-        guard data["action"] as? String == "updateNowPlaying"
-        else {
-            return
-        }
-
-        let title =
-            data["title"] as? String ?? "Boom Music"
-
-        let artist =
-            data["artist"] as? String ?? "Unknown Artist"
-
-        let duration =
-            data["duration"] as? Double ?? 0
-
-        let currentTime =
-            data["currentTime"] as? Double ?? 0
-
-        let isPlaying =
-            data["isPlaying"] as? Bool ?? false
-
-        AudioManager.shared.updateNowPlaying(
-            title: title,
-            artist: artist,
-            duration: duration,
-            currentTime: currentTime,
-            isPlaying: isPlaying
-        )
+    override var prefersStatusBarHidden: Bool {
+        true
     }
 
-    deinit {
-        webView?.configuration.userContentController.removeScriptMessageHandler(
-            forName: "boomBridge"
-        )
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        .all
+    }
+
+    override var prefersHomeIndicatorAutoHidden: Bool {
+        true
     }
 }
