@@ -12,23 +12,23 @@ jobs:
     runs-on: macos-latest
 
     steps:
-
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install XcodeGen
-        run: |
-          brew install xcodegen
+        run: brew install xcodegen
 
-      - name: Verify Web Files
+      - name: Verify Files
         run: |
+          test -f BoomMusic/AppDelegate.swift
+          test -f BoomMusic/SceneDelegate.swift
+          test -f BoomMusic/ViewController.swift
+          test -f BoomMusic/AudioManager.swift
+          test -f BoomMusic/Info.plist
           test -f BoomMusic/www/index.html
           test -f BoomMusic/www/Player.js
           test -f BoomMusic/www/Equalizer.js
           test -f BoomMusic/www/Visualizer.js
-
-          echo "Web files OK:"
-          find BoomMusic/www -type f | sort
 
       - name: Create Xcode Project
         run: |
@@ -62,6 +62,7 @@ jobs:
 
               resources:
                 - path: ../BoomMusic/www
+                  type: folder
 
               settings:
                 base:
@@ -70,16 +71,12 @@ jobs:
                   CODE_SIGNING_REQUIRED: NO
           EOF
 
-      - name: Generate Xcode Project
+      - name: Generate Project
         working-directory: Build
         run: |
           xcodegen generate
 
-      - name: Show Project
-        run: |
-          find Build -maxdepth 3 -type f | sort
-
-      - name: Archive for iPhone
+      - name: Archive
         working-directory: Build
         run: |
           xcodebuild \
@@ -92,15 +89,9 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             archive
 
-      - name: Verify Archive
+      - name: Verify Web Resources
         run: |
           APP="BoomMusic.xcarchive/Products/Applications/BoomMusic.app"
-
-          if [ ! -d "$APP" ]; then
-            echo "ERROR: BoomMusic.app tidak ditemukan"
-            find BoomMusic.xcarchive -maxdepth 6 -print
-            exit 1
-          fi
 
           echo "=== APP SIZE ==="
           du -sh "$APP"
@@ -108,38 +99,32 @@ jobs:
           echo "=== APP CONTENT ==="
           find "$APP" -maxdepth 3 -type f | sort
 
-          echo "=== WEB CONTENT ==="
-          find "$APP/www" -type f | sort
+          echo "=== SEARCH WWW ==="
+          find "$APP" -type f \( \
+            -name "index.html" -o \
+            -name "Player.js" -o \
+            -name "Equalizer.js" -o \
+            -name "Visualizer.js" \
+          \) -print
 
-          test -f "$APP/www/index.html"
-          test -f "$APP/www/Player.js"
-
-      - name: Create IPA
+      - name: Prepare IPA
         run: |
+          APP="BoomMusic.xcarchive/Products/Applications/BoomMusic.app"
+
           rm -rf Payload BoomMusic.ipa
+          mkdir Payload
 
-          mkdir -p Payload
+          cp -R "$APP" Payload/BoomMusic.app
 
-          cp -R \
-            "BoomMusic.xcarchive/Products/Applications/BoomMusic.app" \
-            "Payload/BoomMusic.app"
-
-          echo "=== PAYLOAD ==="
-          du -sh Payload/BoomMusic.app
-
-          echo "=== PAYLOAD WEB ==="
-          find Payload/BoomMusic.app/www -type f | sort
+          if [ ! -f "Payload/BoomMusic.app/www/index.html" ]; then
+            echo "ERROR: www tidak masuk ke aplikasi"
+            exit 1
+          fi
 
           zip -qry BoomMusic.ipa Payload
 
-          echo "=== IPA SIZE ==="
+          echo "=== FINAL IPA ==="
           ls -lh BoomMusic.ipa
-
-      - name: Verify IPA
-        run: |
-          unzip -l BoomMusic.ipa | head -100
-
-          unzip -l BoomMusic.ipa | grep "Payload/BoomMusic.app/www/index.html"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
