@@ -16,11 +16,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify Repository
+      - name: Install XcodeGen
+        run: |
+          brew install xcodegen
+
+      - name: Verify Files
         run: |
           set -e
-
-          test -f BoomMusic.xcodeproj/project.pbxproj
 
           test -f BoomMusic/AppDelegate.swift
           test -f BoomMusic/SceneDelegate.swift
@@ -33,60 +35,69 @@ jobs:
           test -f BoomMusic/www/Equalizer.js
           test -f BoomMusic/www/Visualizer.js
 
-          echo "REPOSITORY OK"
+          echo "SOURCE OK"
 
-      - name: Fix Project Paths
+      - name: Generate Xcode Project
         run: |
           set -e
 
-          python3 <<'PY'
-          from pathlib import Path
+          rm -rf Generated
+          mkdir Generated
 
-          p = Path("BoomMusic.xcodeproj/project.pbxproj")
-          s = p.read_text()
+          cat > Generated/project.yml <<'EOF'
+          name: BoomMusic
 
-          replacements = {
-              "path = AppDelegate.swift;":
-                  "path = BoomMusic/AppDelegate.swift;",
+          options:
+            deploymentTarget:
+              iOS: "15.0"
 
-              "path = SceneDelegate.swift;":
-                  "path = BoomMusic/SceneDelegate.swift;",
+          settings:
+            base:
+              PRODUCT_BUNDLE_IDENTIFIER: com.boommusic.app
+              PRODUCT_NAME: BoomMusic
+              SWIFT_VERSION: "5.0"
+              TARGETED_DEVICE_FAMILY: "1,2"
+              INFOPLIST_FILE: ../BoomMusic/Info.plist
+              GENERATE_INFOPLIST_FILE: NO
 
-              "path = ViewController.swift;":
-                  "path = BoomMusic/ViewController.swift;",
+          targets:
 
-              "path = AudioManager.swift;":
-                  "path = BoomMusic/AudioManager.swift;",
+            BoomMusic:
+              type: application
+              platform: iOS
 
-              "path = www;":
-                  "path = BoomMusic/www;",
+              sources:
+                - path: ../BoomMusic/AppDelegate.swift
+                - path: ../BoomMusic/SceneDelegate.swift
+                - path: ../BoomMusic/ViewController.swift
+                - path: ../BoomMusic/AudioManager.swift
 
-              "INFOPLIST_FILE = Info.plist;":
-                  "INFOPLIST_FILE = BoomMusic/Info.plist;",
-          }
+              resources:
+                - path: ../BoomMusic/www
 
-          for old, new in replacements.items():
-              s = s.replace(old, new)
+              settings:
+                base:
+                  CODE_SIGNING_ALLOWED: NO
+                  CODE_SIGNING_REQUIRED: NO
+          EOF
 
-          p.write_text(s)
-          PY
+          cd Generated
 
-          echo "PROJECT PATHS OK"
+          xcodegen generate
 
-      - name: Show Project
-        run: |
-          xcodebuild \
-            -project BoomMusic.xcodeproj \
-            -list
+          echo "=== GENERATED PROJECT ==="
 
-      - name: Build iPhoneOS
+          ls -la
+          test -f BoomMusic.xcodeproj/project.pbxproj
+
+      - name: Build
         run: |
           set -e
 
           rm -rf build
 
           xcodebuild \
-            -project BoomMusic.xcodeproj \
+            -project Generated/BoomMusic.xcodeproj \
             -scheme BoomMusic \
             -sdk iphoneos \
             -configuration Release \
@@ -112,26 +123,19 @@ jobs:
           echo "=== APP ==="
           echo "$APP"
 
-          echo "=== SIZE ==="
-          du -sh "$APP"
-
           echo "=== EXECUTABLE ==="
-          ls -lh "$APP/BoomMusic"
-
           file "$APP/BoomMusic"
 
-      - name: Ensure Web Content
+          ls -lh "$APP/BoomMusic"
+
+      - name: Verify Web
         run: |
           set -e
 
           APP=$(cat app_path.txt)
 
-          rm -rf "$APP/www"
-          mkdir -p "$APP/www"
+          echo "=== WEB ==="
 
-          cp -R BoomMusic/www/. "$APP/www/"
-
-          echo "=== WWW ==="
           find "$APP/www" -type f -print
 
           test -f "$APP/www/index.html"
@@ -139,9 +143,9 @@ jobs:
           test -f "$APP/www/Equalizer.js"
           test -f "$APP/www/Visualizer.js"
 
-          echo "WEB CONTENT OK"
+          echo "WEB OK"
 
-      - name: Prepare Payload
+      - name: Create Payload
         run: |
           set -e
 
@@ -149,72 +153,6 @@ jobs:
 
           rm -rf Payload
 
-          mkdir -p Payload
+          mkdir Payload
 
-          cp -R "$APP" Payload/BoomMusic.app
-
-          test -f Payload/BoomMusic.app/BoomMusic
-          test -f Payload/BoomMusic.app/www/index.html
-          test -f Payload/BoomMusic.app/www/Player.js
-
-          echo "=== PAYLOAD SIZE ==="
-          du -sh Payload/BoomMusic.app
-
-          echo "=== PAYLOAD ==="
-          find Payload/BoomMusic.app \
-            -maxdepth 2 \
-            -type f \
-            -print
-
-      - name: Create IPA
-        run: |
-          set -e
-
-          rm -f BoomMusic.ipa
-
-          cd Payload
-
-          zip -qry ../BoomMusic.ipa BoomMusic.app
-
-          cd ..
-
-          echo "=== IPA ==="
-          ls -lh BoomMusic.ipa
-
-      - name: Verify IPA
-        run: |
-          set -e
-
-          rm -rf verify
-          mkdir verify
-
-          unzip -q BoomMusic.ipa -d verify
-
-          APP="verify/Payload/BoomMusic.app"
-
-          test -f "$APP/BoomMusic"
-          test -f "$APP/www/index.html"
-          test -f "$APP/www/Player.js"
-          test -f "$APP/www/Equalizer.js"
-          test -f "$APP/www/Visualizer.js"
-
-          echo "=== FINAL APP ==="
-          du -sh "$APP"
-
-          echo "=== EXECUTABLE ==="
-          file "$APP/BoomMusic"
-
-          echo "=== WEB ==="
-          find "$APP/www" -type f -print
-
-          echo ""
-          echo "=============================="
-          echo " BOOM MUSIC IPA READY"
-          echo "=============================="
-
-      - name: Upload IPA
-        uses: actions/upload-artifact@v4
-        with:
-          name: BoomMusic-IPA
-          path: BoomMusic.ipa
-          if-no-files-found: error
+          cp -R "$APP" Payload/B
