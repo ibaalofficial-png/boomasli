@@ -13,31 +13,13 @@ jobs:
 
     steps:
 
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install XcodeGen
-        run: |
-          brew install xcodegen
+        run: brew install xcodegen
 
-      - name: Verify Source
-        run: |
-          set -e
-
-          test -f BoomMusic/AppDelegate.swift
-          test -f BoomMusic/SceneDelegate.swift
-          test -f BoomMusic/ViewController.swift
-          test -f BoomMusic/AudioManager.swift
-          test -f BoomMusic/Info.plist
-
-          test -f BoomMusic/www/index.html
-          test -f BoomMusic/www/Player.js
-          test -f BoomMusic/www/Equalizer.js
-          test -f BoomMusic/www/Visualizer.js
-
-          echo "Source OK"
-
-      - name: Create XcodeGen Project
+      - name: Create Project
         run: |
           mkdir -p Build
 
@@ -74,16 +56,13 @@ jobs:
                   CODE_SIGNING_REQUIRED: NO
           EOF
 
-      - name: Generate Xcode Project
-        working-directory: Build
-        run: |
+          cd Build
           xcodegen generate
 
-      - name: Build Archive
-        working-directory: Build
+      - name: Archive
         run: |
           xcodebuild \
-            -project BoomMusic.xcodeproj \
+            -project Build/BoomMusic.xcodeproj \
             -scheme BoomMusic \
             -sdk iphoneos \
             -configuration Release \
@@ -92,70 +71,104 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             archive
 
-      - name: Prepare App
+      - name: Locate App
         run: |
           set -e
 
-          APP="BoomMusic.xcarchive/Products/Applications/BoomMusic.app"
+          echo "=== FIND APP ==="
 
-          if [ ! -d "$APP" ]; then
+          find BoomMusic.xcarchive \
+            -type d \
+            -name "*.app" \
+            -print
+
+          APP=$(find BoomMusic.xcarchive \
+            -type d \
+            -name "BoomMusic.app" \
+            -print -quit)
+
+          if [ -z "$APP" ]; then
             echo "ERROR: BoomMusic.app tidak ditemukan"
             exit 1
           fi
 
-          echo "=== ORIGINAL APP ==="
+          echo "APP=$APP"
+
+          echo "$APP" > app_path.txt
+
+          echo "=== APP SIZE ==="
           du -sh "$APP"
 
-          echo "=== APP FILES ==="
-          find "$APP" -maxdepth 2 -type f | sort
+          echo "=== APP CONTENT ==="
+          find "$APP" -maxdepth 2 -type f -print
 
-          echo "=== COPY WEB APP ==="
+      - name: Inject Web Files
+        run: |
+          set -e
+
+          APP=$(cat app_path.txt)
+
+          echo "=== COPYING WWW ==="
 
           rm -rf "$APP/www"
           mkdir -p "$APP/www"
 
           cp -R BoomMusic/www/. "$APP/www/"
 
-          echo "=== WEB FILES ==="
-          find "$APP/www" -type f | sort
-
           test -f "$APP/www/index.html"
           test -f "$APP/www/Player.js"
-          test -f "$APP/www/Equalizer.js"
-          test -f "$APP/www/Visualizer.js"
+
+          echo "=== WWW SIZE ==="
+          du -sh "$APP/www"
+
+      - name: Verify App Binary
+        run: |
+          set -e
+
+          APP=$(cat app_path.txt)
+
+          echo "=== APP EXECUTABLE ==="
+
+          EXECUTABLE="$APP/BoomMusic"
+
+          if [ ! -f "$EXECUTABLE" ]; then
+            echo "ERROR: BoomMusic executable tidak ditemukan"
+
+            echo "Files:"
+            find "$APP" -maxdepth 2 -type f -print
+
+            exit 1
+          fi
+
+          ls -lh "$EXECUTABLE"
+          file "$EXECUTABLE"
 
       - name: Create IPA
         run: |
           set -e
 
+          APP=$(cat app_path.txt)
+
           rm -rf Payload BoomMusic.ipa
           mkdir -p Payload
 
-          cp -R \
-            "BoomMusic.xcarchive/Products/Applications/BoomMusic.app" \
-            "Payload/BoomMusic.app"
+          cp -R "$APP" Payload/BoomMusic.app
 
-          echo "=== FINAL APP SIZE ==="
+          echo "=== PAYLOAD ==="
+          find Payload/BoomMusic.app -maxdepth 2 -type f -print
+
+          echo "=== PAYLOAD SIZE ==="
           du -sh Payload/BoomMusic.app
 
-          echo "=== FINAL APP CONTENT ==="
-          find Payload/BoomMusic.app -maxdepth 2 -type f | sort
-
-          echo "=== PACKAGING IPA ==="
-
-          ditto -c -k --sequesterRsrc --keepParent \
-            Payload/BoomMusic.app \
-            BoomMusic.app.zip
-
-          rm -f BoomMusic.ipa
+          echo "=== CREATE IPA ==="
 
           cd Payload
+
           zip -qry ../BoomMusic.ipa BoomMusic.app
+
           cd ..
 
-          rm -f BoomMusic.app.zip
-
-          echo "=== FINAL IPA ==="
+          echo "=== IPA ==="
           ls -lh BoomMusic.ipa
 
       - name: Verify IPA
@@ -166,32 +179,34 @@ jobs:
 
           unzip -l BoomMusic.ipa
 
-          echo "=== CHECK APP ==="
+          echo "=== VERIFY EXECUTABLE ==="
 
           unzip -l BoomMusic.ipa \
-            | grep "Payload/BoomMusic.app/BoomMusic"
+            | grep "BoomMusic.app/BoomMusic"
 
-          echo "=== CHECK INDEX ==="
-
-          unzip -l BoomMusic.ipa \
-            | grep "Payload/BoomMusic.app/www/index.html"
-
-          echo "=== CHECK PLAYER ==="
+          echo "=== VERIFY INDEX ==="
 
           unzip -l BoomMusic.ipa \
-            | grep "Payload/BoomMusic.app/www/Player.js"
+            | grep "BoomMusic.app/www/index.html"
 
-          echo "=== CHECK EQUALIZER ==="
-
-          unzip -l BoomMusic.ipa \
-            | grep "Payload/BoomMusic.app/www/Equalizer.js"
-
-          echo "=== CHECK VISUALIZER ==="
+          echo "=== VERIFY PLAYER ==="
 
           unzip -l BoomMusic.ipa \
-            | grep "Payload/BoomMusic.app/www/Visualizer.js"
+            | grep "BoomMusic.app/www/Player.js"
 
-          echo "IPA STRUCTURE OK"
+          echo "=== VERIFY EQUALIZER ==="
+
+          unzip -l BoomMusic.ipa \
+            | grep "BoomMusic.app/www/Equalizer.js"
+
+          echo "=== VERIFY VISUALIZER ==="
+
+          unzip -l BoomMusic.ipa \
+            | grep "BoomMusic.app/www/Visualizer.js"
+
+          echo "=============================="
+          echo " BOOM MUSIC IPA READY"
+          echo "=============================="
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
