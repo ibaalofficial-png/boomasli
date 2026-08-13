@@ -13,25 +13,31 @@ jobs:
 
     steps:
 
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Verify Source Files
         run: |
+          brew install xcodegen
+
+      - name: Verify Source
+        run: |
+          set -e
+
           test -f BoomMusic/AppDelegate.swift
           test -f BoomMusic/SceneDelegate.swift
           test -f BoomMusic/ViewController.swift
           test -f BoomMusic/AudioManager.swift
           test -f BoomMusic/Info.plist
+
           test -f BoomMusic/www/index.html
           test -f BoomMusic/www/Player.js
           test -f BoomMusic/www/Equalizer.js
           test -f BoomMusic/www/Visualizer.js
 
-      - name: Create Xcode Project
+          echo "Source OK"
+
+      - name: Create XcodeGen Project
         run: |
           mkdir -p Build
 
@@ -45,6 +51,7 @@ jobs:
           settings:
             base:
               PRODUCT_BUNDLE_IDENTIFIER: com.boommusic.app
+              PRODUCT_NAME: BoomMusic
               SWIFT_VERSION: "5.0"
               TARGETED_DEVICE_FAMILY: "1,2"
               INFOPLIST_FILE: ../BoomMusic/Info.plist
@@ -63,16 +70,16 @@ jobs:
 
               settings:
                 base:
-                  PRODUCT_NAME: BoomMusic
                   CODE_SIGNING_ALLOWED: NO
                   CODE_SIGNING_REQUIRED: NO
           EOF
 
       - name: Generate Xcode Project
         working-directory: Build
-        run: xcodegen generate
+        run: |
+          xcodegen generate
 
-      - name: Archive
+      - name: Build Archive
         working-directory: Build
         run: |
           xcodebuild \
@@ -85,8 +92,10 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             archive
 
-      - name: Copy Web App Into Bundle
+      - name: Prepare App
         run: |
+          set -e
+
           APP="BoomMusic.xcarchive/Products/Applications/BoomMusic.app"
 
           if [ ! -d "$APP" ]; then
@@ -94,10 +103,18 @@ jobs:
             exit 1
           fi
 
-          echo "Copying www..."
+          echo "=== ORIGINAL APP ==="
+          du -sh "$APP"
+
+          echo "=== APP FILES ==="
+          find "$APP" -maxdepth 2 -type f | sort
+
+          echo "=== COPY WEB APP ==="
 
           rm -rf "$APP/www"
-          cp -R BoomMusic/www "$APP/www"
+          mkdir -p "$APP/www"
+
+          cp -R BoomMusic/www/. "$APP/www/"
 
           echo "=== WEB FILES ==="
           find "$APP/www" -type f | sort
@@ -109,26 +126,72 @@ jobs:
 
       - name: Create IPA
         run: |
-          APP="BoomMusic.xcarchive/Products/Applications/BoomMusic.app"
+          set -e
 
           rm -rf Payload BoomMusic.ipa
           mkdir -p Payload
 
-          cp -R "$APP" Payload/BoomMusic.app
+          cp -R \
+            "BoomMusic.xcarchive/Products/Applications/BoomMusic.app" \
+            "Payload/BoomMusic.app"
 
-          echo "=== APP SIZE ==="
+          echo "=== FINAL APP SIZE ==="
           du -sh Payload/BoomMusic.app
 
-          echo "=== CREATE IPA ==="
-          zip -qry BoomMusic.ipa Payload
+          echo "=== FINAL APP CONTENT ==="
+          find Payload/BoomMusic.app -maxdepth 2 -type f | sort
 
-          echo "=== IPA RESULT ==="
+          echo "=== PACKAGING IPA ==="
+
+          ditto -c -k --sequesterRsrc --keepParent \
+            Payload/BoomMusic.app \
+            BoomMusic.app.zip
+
+          rm -f BoomMusic.ipa
+
+          cd Payload
+          zip -qry ../BoomMusic.ipa BoomMusic.app
+          cd ..
+
+          rm -f BoomMusic.app.zip
+
+          echo "=== FINAL IPA ==="
           ls -lh BoomMusic.ipa
 
       - name: Verify IPA
         run: |
-          unzip -l BoomMusic.ipa | grep "Payload/BoomMusic.app/www/"
-          unzip -l BoomMusic.ipa | grep "Payload/BoomMusic.app/www/index.html"
+          set -e
+
+          echo "=== IPA CONTENT ==="
+
+          unzip -l BoomMusic.ipa
+
+          echo "=== CHECK APP ==="
+
+          unzip -l BoomMusic.ipa \
+            | grep "Payload/BoomMusic.app/BoomMusic"
+
+          echo "=== CHECK INDEX ==="
+
+          unzip -l BoomMusic.ipa \
+            | grep "Payload/BoomMusic.app/www/index.html"
+
+          echo "=== CHECK PLAYER ==="
+
+          unzip -l BoomMusic.ipa \
+            | grep "Payload/BoomMusic.app/www/Player.js"
+
+          echo "=== CHECK EQUALIZER ==="
+
+          unzip -l BoomMusic.ipa \
+            | grep "Payload/BoomMusic.app/www/Equalizer.js"
+
+          echo "=== CHECK VISUALIZER ==="
+
+          unzip -l BoomMusic.ipa \
+            | grep "Payload/BoomMusic.app/www/Visualizer.js"
+
+          echo "IPA STRUCTURE OK"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
