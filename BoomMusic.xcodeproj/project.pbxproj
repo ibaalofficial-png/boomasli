@@ -1,233 +1,40 @@
-name: Build Boom Music IPA
-
-on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-      - master
-
-jobs:
-  build:
-    runs-on: macos-latest
-
-    steps:
-
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Verify Repository
+      - name: DEBUG IPA CONTENT
         run: |
           set -e
 
-          echo "=== REPOSITORY ==="
-          find BoomMusic -maxdepth 2 -type f | sort
-
-          echo "=== XCODE PROJECT ==="
-
-          test -f BoomMusic.xcodeproj/project.pbxproj
-
-          echo "Xcode project found."
-
-          test -f BoomMusic/AppDelegate.swift
-          test -f BoomMusic/SceneDelegate.swift
-          test -f BoomMusic/ViewController.swift
-          test -f BoomMusic/AudioManager.swift
-          test -f BoomMusic/Info.plist
-          test -f BoomMusic/www/index.html
-
-          echo "SOURCE OK"
-
-      - name: Fix Project Paths
-        run: |
-          set -e
-
-          python3 <<'PY'
-          from pathlib import Path
-
-          p = Path("BoomMusic.xcodeproj/project.pbxproj")
-
-          s = p.read_text()
-
-          replacements = {
-              "path = AppDelegate.swift;":
-                  "path = BoomMusic/AppDelegate.swift;",
-
-              "path = SceneDelegate.swift;":
-                  "path = BoomMusic/SceneDelegate.swift;",
-
-              "path = ViewController.swift;":
-                  "path = BoomMusic/ViewController.swift;",
-
-              "path = AudioManager.swift;":
-                  "path = BoomMusic/AudioManager.swift;",
-
-              "path = www;":
-                  "path = BoomMusic/www;",
-
-              "INFOPLIST_FILE = Info.plist;":
-                  "INFOPLIST_FILE = BoomMusic/Info.plist;",
-          }
-
-          for old, new in replacements.items():
-              s = s.replace(old, new)
-
-          p.write_text(s)
-
-          print("Project paths fixed.")
-          PY
-
-      - name: Show Project
-        run: |
-          echo "=== XCODE PROJECT ==="
-
-          xcodebuild \
-            -project BoomMusic.xcodeproj \
-            -list
-
-      - name: Build iPhoneOS
-        run: |
-          set -e
-
-          rm -rf build
-
-          xcodebuild \
-            -project BoomMusic.xcodeproj \
-            -scheme BoomMusic \
-            -sdk iphoneos \
-            -configuration Release \
-            -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            build
-
-      - name: Locate Application
-        run: |
-          set -e
-
-          APP=$(find build \
-            -type d \
-            -name "BoomMusic.app" \
-            -print -quit)
-
-          if [ -z "$APP" ]; then
-            echo "ERROR: BoomMusic.app tidak ditemukan."
-            exit 1
-          fi
-
-          echo "$APP" > app_path.txt
-
-          echo "=== APP PATH ==="
-          echo "$APP"
-
-          echo "=== APP SIZE ==="
-          du -sh "$APP"
-
-          echo "=== EXECUTABLE ==="
-          ls -lh "$APP/BoomMusic"
-
-          file "$APP/BoomMusic"
-
-      - name: Ensure Web Content
-        run: |
-          set -e
-
-          APP=$(cat app_path.txt)
-
-          echo "=== WEB CONTENT ==="
-
-          rm -rf "$APP/www"
-
-          mkdir -p "$APP/www"
-
-          cp -R BoomMusic/www/. "$APP/www/"
-
-          find "$APP/www" -type f -print
-
-          test -f "$APP/www/index.html"
-          test -f "$APP/www/Player.js"
-          test -f "$APP/www/Equalizer.js"
-          test -f "$APP/www/Visualizer.js"
-
-          echo "WEB CONTENT OK"
-
-      - name: Prepare Payload
-        run: |
-          set -e
-
-          APP=$(cat app_path.txt)
-
-          rm -rf Payload
-
-          mkdir -p Payload
-
-          cp -R "$APP" Payload/BoomMusic.app
-
-          echo "=== PAYLOAD SIZE ==="
-          du -sh Payload/BoomMusic.app
-
-          echo "=== EXECUTABLE ==="
-          ls -lh Payload/BoomMusic.app/BoomMusic
-
-          echo "=== WWW ==="
-          find Payload/BoomMusic.app/www -type f -print
-
-          test -f Payload/BoomMusic.app/BoomMusic
-          test -f Payload/BoomMusic.app/www/index.html
-          test -f Payload/BoomMusic.app/www/Player.js
-
-          echo "PAYLOAD OK"
-
-      - name: Create IPA
-        run: |
-          set -e
-
-          rm -f BoomMusic.ipa
-
-          cd Payload
-
-          zip -qry ../BoomMusic.ipa BoomMusic.app
-
-          cd ..
-
-          echo "=== FINAL IPA ==="
+          echo "=== IPA SIZE ==="
           ls -lh BoomMusic.ipa
 
-      - name: Verify IPA
-        run: |
-          set -e
-
-          rm -rf verify
-
-          mkdir verify
-
-          unzip -q BoomMusic.ipa -d verify
-
-          APP="verify/Payload/BoomMusic.app"
-
-          echo "=== FINAL APP ==="
-          du -sh "$APP"
-
-          echo "=== EXECUTABLE ==="
-          ls -lh "$APP/BoomMusic"
-
-          echo "=== WEB ==="
-          find "$APP/www" -type f -print
-
-          test -f "$APP/BoomMusic"
-          test -f "$APP/www/index.html"
-          test -f "$APP/www/Player.js"
-          test -f "$APP/www/Equalizer.js"
-          test -f "$APP/www/Visualizer.js"
+          echo ""
+          echo "=== IPA FILE LIST ==="
+          unzip -l BoomMusic.ipa
 
           echo ""
-          echo "================================"
-          echo "       BOOM MUSIC IPA READY"
-          echo "================================"
+          echo "=== EXTRACT IPA ==="
 
-      - name: Upload IPA
-        uses: actions/upload-artifact@v4
-        with:
-          name: BoomMusic-IPA
-          path: BoomMusic.ipa
-          if-no-files-found: error
+          rm -rf debug-ipa
+          mkdir debug-ipa
+
+          unzip -q BoomMusic.ipa -d debug-ipa
+
+          echo ""
+          echo "=== APP SIZE ==="
+          du -sh debug-ipa/Payload/BoomMusic.app
+
+          echo ""
+          echo "=== APP CONTENT ==="
+          find debug-ipa/Payload/BoomMusic.app \
+            -maxdepth 3 \
+            -type f \
+            -exec ls -lh {} \;
+
+          echo ""
+          echo "=== WEB CONTENT ==="
+
+          if [ -d "debug-ipa/Payload/BoomMusic.app/www" ]; then
+              find debug-ipa/Payload/BoomMusic.app/www \
+                -type f \
+                -exec ls -lh {} \;
+          else
+              echo "WWW TIDAK ADA"
+          fi
