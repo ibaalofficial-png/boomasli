@@ -17,10 +17,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install XcodeGen
-        run: |
-          brew install xcodegen
+        run: brew install xcodegen
 
-      - name: Verify Files
+      - name: Verify Source
         run: |
           set -e
 
@@ -61,7 +60,6 @@ jobs:
               GENERATE_INFOPLIST_FILE: NO
 
           targets:
-
             BoomMusic:
               type: application
               platform: iOS
@@ -72,9 +70,6 @@ jobs:
                 - path: ../BoomMusic/ViewController.swift
                 - path: ../BoomMusic/AudioManager.swift
 
-              resources:
-                - path: ../BoomMusic/www
-
               settings:
                 base:
                   CODE_SIGNING_ALLOWED: NO
@@ -82,15 +77,13 @@ jobs:
           EOF
 
           cd Generated
-
           xcodegen generate
 
-          echo "=== GENERATED PROJECT ==="
-
-          ls -la
           test -f BoomMusic.xcodeproj/project.pbxproj
 
-      - name: Build
+          echo "PROJECT GENERATED"
+
+      - name: Build iPhoneOS
         run: |
           set -e
 
@@ -116,7 +109,10 @@ jobs:
             -name "BoomMusic.app" \
             -print -quit)
 
-          test -n "$APP"
+          if [ -z "$APP" ]; then
+            echo "ERROR: BoomMusic.app tidak ditemukan"
+            exit 1
+          fi
 
           echo "$APP" > app_path.txt
 
@@ -124,17 +120,24 @@ jobs:
           echo "$APP"
 
           echo "=== EXECUTABLE ==="
-          file "$APP/BoomMusic"
-
           ls -lh "$APP/BoomMusic"
 
-      - name: Verify Web
+          file "$APP/BoomMusic"
+
+      - name: Inject WWW
         run: |
           set -e
 
           APP=$(cat app_path.txt)
 
-          echo "=== WEB ==="
+          echo "=== COPY WWW ==="
+
+          rm -rf "$APP/www"
+          mkdir -p "$APP/www"
+
+          cp -R BoomMusic/www/. "$APP/www/"
+
+          echo "=== WWW ==="
 
           find "$APP/www" -type f -print
 
@@ -143,16 +146,85 @@ jobs:
           test -f "$APP/www/Equalizer.js"
           test -f "$APP/www/Visualizer.js"
 
-          echo "WEB OK"
+          echo "WWW OK"
 
-      - name: Create Payload
+      - name: Prepare Payload
         run: |
           set -e
 
           APP=$(cat app_path.txt)
 
           rm -rf Payload
-
           mkdir Payload
 
-          cp -R "$APP" Payload/B
+          cp -R "$APP" Payload/BoomMusic.app
+
+          echo "=== APP SIZE ==="
+          du -sh Payload/BoomMusic.app
+
+          echo "=== EXECUTABLE ==="
+          file Payload/BoomMusic.app/BoomMusic
+
+          echo "=== WWW ==="
+          find Payload/BoomMusic.app/www -type f -print
+
+          test -f Payload/BoomMusic.app/BoomMusic
+          test -f Payload/BoomMusic.app/www/index.html
+          test -f Payload/BoomMusic.app/www/Player.js
+          test -f Payload/BoomMusic.app/www/Equalizer.js
+          test -f Payload/BoomMusic.app/www/Visualizer.js
+
+          echo "PAYLOAD OK"
+
+      - name: Create IPA
+        run: |
+          set -e
+
+          rm -f BoomMusic.ipa
+
+          cd Payload
+
+          zip -qry ../BoomMusic.ipa BoomMusic.app
+
+          cd ..
+
+          echo "=== FINAL IPA ==="
+          ls -lh BoomMusic.ipa
+
+      - name: Verify IPA
+        run: |
+          set -e
+
+          rm -rf verify
+          mkdir verify
+
+          unzip -q BoomMusic.ipa -d verify
+
+          APP="verify/Payload/BoomMusic.app"
+
+          echo "=== FINAL APP ==="
+          du -sh "$APP"
+
+          echo "=== EXECUTABLE ==="
+          file "$APP/BoomMusic"
+
+          echo "=== WEB ==="
+          find "$APP/www" -type f -print
+
+          test -f "$APP/BoomMusic"
+          test -f "$APP/www/index.html"
+          test -f "$APP/www/Player.js"
+          test -f "$APP/www/Equalizer.js"
+          test -f "$APP/www/Visualizer.js"
+
+          echo ""
+          echo "=============================="
+          echo " BOOM MUSIC IPA READY"
+          echo "=============================="
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: BoomMusic-IPA
+          path: BoomMusic.ipa
+          if-no-files-found: error
