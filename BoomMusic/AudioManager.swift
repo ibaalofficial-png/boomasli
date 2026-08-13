@@ -1,221 +1,106 @@
 import Foundation
 import AVFoundation
 import MediaPlayer
-import WebKit
 
 final class AudioManager {
 
     static let shared = AudioManager()
 
-    weak var webView: WKWebView?
+    private let audioSession = AVAudioSession.sharedInstance()
 
-    private init() {
-        setupAudioSession()
-        setupRemoteTransportControls()
-        setupInterruptionObserver()
-    }
+    private init() {}
 
-    // MARK: - Audio Session
+    func configure() {
 
-    func setupAudioSession() {
         do {
-            let session = AVAudioSession.sharedInstance()
 
-            try session.setCategory(
+            try audioSession.setCategory(
                 .playback,
                 mode: .default,
-                options: []
+                options: [
+                    .allowAirPlay,
+                    .allowBluetooth,
+                    .allowBluetoothA2DP
+                ]
             )
 
-            try session.setActive(true)
+            try audioSession.setActive(true)
+
+            setupRemoteCommands()
+
+            print("BoomMusic AudioManager: READY")
 
         } catch {
-            print("AudioSession error:", error)
-        }
-    }
 
-    // MARK: - Lock Screen / Control Center
-
-    private func setupRemoteTransportControls() {
-
-        let commandCenter = MPRemoteCommandCenter.shared()
-
-        commandCenter.playCommand.isEnabled = true
-        commandCenter.pauseCommand.isEnabled = true
-        commandCenter.nextTrackCommand.isEnabled = true
-        commandCenter.previousTrackCommand.isEnabled = true
-
-        commandCenter.playCommand.addTarget { [weak self] _ in
-            self?.evaluateJavaScript("""
-            if (window.Player && typeof window.Player.toggle === 'function') {
-                if (window.Player.audio && window.Player.audio.paused) {
-                    window.Player.toggle();
-                }
-            }
-            """)
-            return .success
-        }
-
-        commandCenter.pauseCommand.addTarget { [weak self] _ in
-            self?.evaluateJavaScript("""
-            if (window.Player && typeof window.Player.toggle === 'function') {
-                if (window.Player.audio && !window.Player.audio.paused) {
-                    window.Player.toggle();
-                }
-            }
-            """)
-            return .success
-        }
-
-        commandCenter.nextTrackCommand.addTarget { [weak self] _ in
-            self?.evaluateJavaScript("""
-            if (window.Player && typeof window.Player.next === 'function') {
-                window.Player.next();
-            }
-            """)
-            return .success
-        }
-
-        commandCenter.previousTrackCommand.addTarget { [weak self] _ in
-            self?.evaluateJavaScript("""
-            if (window.Player && typeof window.Player.prev === 'function') {
-                window.Player.prev();
-            }
-            """)
-            return .success
-        }
-    }
-
-    // MARK: - Now Playing
-
-    func updateNowPlaying(
-        title: String,
-        artist: String,
-        duration: Double,
-        currentTime: Double,
-        isPlaying: Bool
-    ) {
-
-        var info: [String: Any] = [:]
-
-        info[MPMediaItemPropertyTitle] = title
-        info[MPMediaItemPropertyArtist] = artist
-
-        if duration > 0 {
-            info[MPMediaItemPropertyPlaybackDuration] = duration
-        }
-
-        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
-
-        info[MPNowPlayingInfoPropertyPlaybackRate] =
-            isPlaying ? 1.0 : 0.0
-
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-    }
-
-    // MARK: - Audio Interruption
-
-    private func setupInterruptionObserver() {
-
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleInterruption),
-            name: AVAudioSession.interruptionNotification,
-            object: AVAudioSession.sharedInstance()
-        )
-    }
-
-    @objc private func handleInterruption(
-        notification: Notification
-    ) {
-
-        guard
-            let userInfo = notification.userInfo,
-            let rawType =
-                userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
-            let type =
-                AVAudioSession.InterruptionType(rawValue: rawType)
-        else {
-            return
-        }
-
-        switch type {
-
-        case .began:
-
-            evaluateJavaScript("""
-            if (window.Player &&
-                window.Player.audio &&
-                !window.Player.audio.paused) {
-                window.Player.audio.pause();
-            }
-            """)
-
-        case .ended:
-
-            guard
-                let rawOptions =
-                    userInfo[AVAudioSessionInterruptionOptionKey] as? UInt
-            else {
-                return
-            }
-
-            let options =
-                AVAudioSession.InterruptionOptions(
-                    rawValue: rawOptions
-                )
-
-            if options.contains(.shouldResume) {
-
-                evaluateJavaScript("""
-                if (window.Player &&
-                    window.Player.audio &&
-                    window.Player.audio.paused) {
-                    window.Player.audio.play();
-                }
-                """)
-            }
-
-        @unknown default:
-            break
-        }
-    }
-
-    // MARK: - JavaScript Bridge
-
-    private func evaluateJavaScript(_ script: String) {
-
-        DispatchQueue.main.async { [weak self] in
-
-            guard let webView = self?.webView else {
-                return
-            }
-
-            webView.evaluateJavaScript(
-                script,
-                completionHandler: nil
+            print(
+                "BoomMusic AudioManager ERROR:",
+                error.localizedDescription
             )
         }
     }
 
-    deinit {
+    private func setupRemoteCommands() {
 
-        NotificationCenter.default.removeObserver(self)
+        let center = MPRemoteCommandCenter.shared()
 
-        MPRemoteCommandCenter.shared()
-            .playCommand
-            .removeTarget(nil)
+        center.playCommand.isEnabled = true
+        center.pauseCommand.isEnabled = true
+        center.nextTrackCommand.isEnabled = true
+        center.previousTrackCommand.isEnabled = true
 
-        MPRemoteCommandCenter.shared()
-            .pauseCommand
-            .removeTarget(nil)
+        center.playCommand.addTarget { _ in
 
-        MPRemoteCommandCenter.shared()
-            .nextTrackCommand
-            .removeTarget(nil)
+            NotificationCenter.default.post(
+                name: .boomMusicPlay,
+                object: nil
+            )
 
-        MPRemoteCommandCenter.shared()
-            .previousTrackCommand
-            .removeTarget(nil)
+            return .success
+        }
+
+        center.pauseCommand.addTarget { _ in
+
+            NotificationCenter.default.post(
+                name: .boomMusicPause,
+                object: nil
+            )
+
+            return .success
+        }
+
+        center.nextTrackCommand.addTarget { _ in
+
+            NotificationCenter.default.post(
+                name: .boomMusicNext,
+                object: nil
+            )
+
+            return .success
+        }
+
+        center.previousTrackCommand.addTarget { _ in
+
+            NotificationCenter.default.post(
+                name: .boomMusicPrevious,
+                object: nil
+            )
+
+            return .success
+        }
     }
+}
+
+extension Notification.Name {
+
+    static let boomMusicPlay =
+        Notification.Name("BoomMusic.Play")
+
+    static let boomMusicPause =
+        Notification.Name("BoomMusic.Pause")
+
+    static let boomMusicNext =
+        Notification.Name("BoomMusic.Next")
+
+    static let boomMusicPrevious =
+        Notification.Name("BoomMusic.Previous")
 }
