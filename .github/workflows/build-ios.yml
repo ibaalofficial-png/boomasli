@@ -24,7 +24,7 @@ jobs:
         run: |
           set -e
 
-          echo "=== CHECK SOURCE ==="
+          echo "=== SOURCE ==="
 
           test -f BoomMusic/AppDelegate.swift
           test -f BoomMusic/SceneDelegate.swift
@@ -81,28 +81,17 @@ jobs:
           EOF
 
           cd Generated
-
           xcodegen generate
 
           test -f BoomMusic.xcodeproj/project.pbxproj
 
-          echo "=== XCODE PROJECT CREATED ==="
-
-      - name: Show Xcode Project
-        run: |
-          set -e
-
-          xcodebuild \
-            -project Generated/BoomMusic.xcodeproj \
-            -list
+          echo "XCODE PROJECT OK"
 
       - name: Build iPhoneOS
         run: |
           set -e
 
           rm -rf build
-
-          echo "=== BUILD ==="
 
           xcodebuild \
             -project Generated/BoomMusic.xcodeproj \
@@ -136,35 +125,27 @@ jobs:
           echo "=== APP PATH ==="
           echo "$APP"
 
-          echo "=== APP SIZE ==="
-          du -sh "$APP"
-
           echo "=== EXECUTABLE ==="
           ls -lh "$APP/BoomMusic"
 
           file "$APP/BoomMusic"
 
-          echo "EXECUTABLE OK"
-
-      - name: Inject Web Application
+      - name: Inject Web Content
         run: |
           set -e
 
           APP=$(cat app_path.txt)
 
-          echo "=== INJECT WWW ==="
-
           rm -rf "$APP/www"
-
           mkdir -p "$APP/www"
 
           cp -R BoomMusic/www/. "$APP/www/"
 
-          echo "=== WWW FILES ==="
+          echo "=== WWW ==="
 
           find "$APP/www" \
             -type f \
-            -print
+            -exec ls -lh {} \;
 
           test -f "$APP/www/index.html"
           test -f "$APP/www/Player.js"
@@ -173,6 +154,39 @@ jobs:
 
           echo "WWW OK"
 
+      - name: Inspect App
+        run: |
+          set -e
+
+          APP=$(cat app_path.txt)
+
+          echo ""
+          echo "=============================="
+          echo " APP SIZE"
+          echo "=============================="
+
+          du -sh "$APP"
+
+          echo ""
+          echo "=== FILE SIZES ==="
+
+          find "$APP" \
+            -type f \
+            -exec du -h {} \; \
+            | sort -h
+
+          echo ""
+          echo "=== EXECUTABLE ==="
+
+          ls -lh "$APP/BoomMusic"
+
+          file "$APP/BoomMusic"
+
+          echo ""
+          echo "=== WWW SIZE ==="
+
+          du -sh "$APP/www"
+
       - name: Prepare Payload
         run: |
           set -e
@@ -180,31 +194,19 @@ jobs:
           APP=$(cat app_path.txt)
 
           rm -rf Payload
-
           mkdir -p Payload
 
           cp -R "$APP" Payload/BoomMusic.app
-
-          echo "=== PAYLOAD ==="
-
-          find Payload/BoomMusic.app \
-            -maxdepth 2 \
-            -type f \
-            -print
-
-          echo "=== PAYLOAD SIZE ==="
-
-          du -sh Payload/BoomMusic.app
-
-          echo "=== PAYLOAD EXECUTABLE ==="
-
-          file Payload/BoomMusic.app/BoomMusic
 
           test -f Payload/BoomMusic.app/BoomMusic
           test -f Payload/BoomMusic.app/www/index.html
           test -f Payload/BoomMusic.app/www/Player.js
           test -f Payload/BoomMusic.app/www/Equalizer.js
           test -f Payload/BoomMusic.app/www/Visualizer.js
+
+          echo "=== PAYLOAD SIZE ==="
+
+          du -sh Payload/BoomMusic.app
 
           echo "PAYLOAD OK"
 
@@ -221,13 +223,6 @@ jobs:
             Payload/BoomMusic.app \
             IPA_PACKAGE/Payload/BoomMusic.app
 
-          echo "=== IPA PACKAGE ==="
-
-          find IPA_PACKAGE/Payload/BoomMusic.app \
-            -maxdepth 2 \
-            -type f \
-            -print
-
           test -f IPA_PACKAGE/Payload/BoomMusic.app/BoomMusic
           test -f IPA_PACKAGE/Payload/BoomMusic.app/www/index.html
 
@@ -237,7 +232,10 @@ jobs:
 
           cd ..
 
-          echo "=== FINAL IPA ==="
+          echo ""
+          echo "=============================="
+          echo " IPA SIZE"
+          echo "=============================="
 
           ls -lh BoomMusic.ipa
 
@@ -246,42 +244,41 @@ jobs:
           set -e
 
           rm -rf verify
-
           mkdir verify
 
           unzip -q BoomMusic.ipa -d verify
-
-          echo "=== EXTRACTED IPA ==="
-
-          find verify \
-            -maxdepth 3 \
-            -type f \
-            -print
 
           APP="verify/Payload/BoomMusic.app"
 
           if [ ! -d "$APP" ]; then
             echo "ERROR: Payload/BoomMusic.app tidak ditemukan"
+            echo ""
+            echo "=== IPA CONTENT ==="
+            find verify -maxdepth 4 -print
             exit 1
           fi
 
-          echo "=== FINAL APP SIZE ==="
+          echo "=============================="
+          echo " FINAL APP SIZE"
+          echo "=============================="
 
           du -sh "$APP"
 
-          echo "=== FINAL EXECUTABLE ==="
-
-          file "$APP/BoomMusic"
+          echo ""
+          echo "=== EXECUTABLE ==="
 
           ls -lh "$APP/BoomMusic"
 
+          file "$APP/BoomMusic"
+
           test -f "$APP/BoomMusic"
 
-          echo "=== FINAL WEB ==="
+          echo ""
+          echo "=== WEB ==="
 
           find "$APP/www" \
             -type f \
-            -print
+            -exec ls -lh {} \;
 
           test -f "$APP/www/index.html"
           test -f "$APP/www/Player.js"
@@ -289,9 +286,9 @@ jobs:
           test -f "$APP/www/Visualizer.js"
 
           echo ""
-          echo "======================================"
-          echo "       BOOM MUSIC IPA READY"
-          echo "======================================"
+          echo "=============================="
+          echo " BOOM MUSIC IPA READY"
+          echo "=============================="
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
