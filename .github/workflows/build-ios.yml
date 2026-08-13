@@ -12,13 +12,14 @@ jobs:
     runs-on: macos-latest
 
     steps:
+
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install XcodeGen
         run: brew install xcodegen
 
-      - name: Verify Files
+      - name: Verify Source Files
         run: |
           test -f BoomMusic/AppDelegate.swift
           test -f BoomMusic/SceneDelegate.swift
@@ -60,10 +61,6 @@ jobs:
                 - path: ../BoomMusic/ViewController.swift
                 - path: ../BoomMusic/AudioManager.swift
 
-              resources:
-                - path: ../BoomMusic/www
-                  type: folder
-
               settings:
                 base:
                   PRODUCT_NAME: BoomMusic
@@ -71,10 +68,9 @@ jobs:
                   CODE_SIGNING_REQUIRED: NO
           EOF
 
-      - name: Generate Project
+      - name: Generate Xcode Project
         working-directory: Build
-        run: |
-          xcodegen generate
+        run: xcodegen generate
 
       - name: Archive
         working-directory: Build
@@ -89,42 +85,50 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             archive
 
-      - name: Verify Web Resources
+      - name: Copy Web App Into Bundle
         run: |
           APP="BoomMusic.xcarchive/Products/Applications/BoomMusic.app"
 
-          echo "=== APP SIZE ==="
-          du -sh "$APP"
+          if [ ! -d "$APP" ]; then
+            echo "ERROR: BoomMusic.app tidak ditemukan"
+            exit 1
+          fi
 
-          echo "=== APP CONTENT ==="
-          find "$APP" -maxdepth 3 -type f | sort
+          echo "Copying www..."
 
-          echo "=== SEARCH WWW ==="
-          find "$APP" -type f \( \
-            -name "index.html" -o \
-            -name "Player.js" -o \
-            -name "Equalizer.js" -o \
-            -name "Visualizer.js" \
-          \) -print
+          rm -rf "$APP/www"
+          cp -R BoomMusic/www "$APP/www"
 
-      - name: Prepare IPA
+          echo "=== WEB FILES ==="
+          find "$APP/www" -type f | sort
+
+          test -f "$APP/www/index.html"
+          test -f "$APP/www/Player.js"
+          test -f "$APP/www/Equalizer.js"
+          test -f "$APP/www/Visualizer.js"
+
+      - name: Create IPA
         run: |
           APP="BoomMusic.xcarchive/Products/Applications/BoomMusic.app"
 
           rm -rf Payload BoomMusic.ipa
-          mkdir Payload
+          mkdir -p Payload
 
           cp -R "$APP" Payload/BoomMusic.app
 
-          if [ ! -f "Payload/BoomMusic.app/www/index.html" ]; then
-            echo "ERROR: www tidak masuk ke aplikasi"
-            exit 1
-          fi
+          echo "=== APP SIZE ==="
+          du -sh Payload/BoomMusic.app
 
+          echo "=== CREATE IPA ==="
           zip -qry BoomMusic.ipa Payload
 
-          echo "=== FINAL IPA ==="
+          echo "=== IPA RESULT ==="
           ls -lh BoomMusic.ipa
+
+      - name: Verify IPA
+        run: |
+          unzip -l BoomMusic.ipa | grep "Payload/BoomMusic.app/www/"
+          unzip -l BoomMusic.ipa | grep "Payload/BoomMusic.app/www/index.html"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
