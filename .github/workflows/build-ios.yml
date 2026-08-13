@@ -1,194 +1,33 @@
-name: Boom Music IPA
-
-on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-      - master
-
-jobs:
-  build:
-    runs-on: macos-latest
-
-    steps:
-
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Verify Source
-        run: |
-          set -e
-
-          test -f BoomMusic/AppDelegate.swift
-          test -f BoomMusic/SceneDelegate.swift
-          test -f BoomMusic/ViewController.swift
-          test -f BoomMusic/AudioManager.swift
-          test -f BoomMusic/Info.plist
-
-          test -f BoomMusic/www/index.html
-          test -f BoomMusic/www/Player.js
-          test -f BoomMusic/www/Equalizer.js
-          test -f BoomMusic/www/Visualizer.js
-
-          echo "SOURCE OK"
-
-      - name: Generate Xcode Project
-        run: |
-          set -e
-
-          rm -rf Generated
-          mkdir Generated
-
-          cat > Generated/project.yml <<'EOF'
-          name: BoomMusic
-
-          options:
-            deploymentTarget:
-              iOS: "15.0"
-
-          settings:
-            base:
-              PRODUCT_BUNDLE_IDENTIFIER: com.boommusic.app
-              PRODUCT_NAME: BoomMusic
-              SWIFT_VERSION: "5.0"
-              TARGETED_DEVICE_FAMILY: "1,2"
-              INFOPLIST_FILE: ../BoomMusic/Info.plist
-              GENERATE_INFOPLIST_FILE: NO
-
-          targets:
-            BoomMusic:
-              type: application
-              platform: iOS
-
-              sources:
-                - path: ../BoomMusic/AppDelegate.swift
-                - path: ../BoomMusic/SceneDelegate.swift
-                - path: ../BoomMusic/ViewController.swift
-                - path: ../BoomMusic/AudioManager.swift
-
-              settings:
-                base:
-                  CODE_SIGNING_ALLOWED: NO
-                  CODE_SIGNING_REQUIRED: NO
-          EOF
-
-          cd Generated
-          xcodegen generate
-
-          test -f BoomMusic.xcodeproj/project.pbxproj
-
-          echo "PROJECT GENERATED"
-
-      - name: Build iPhoneOS
-        run: |
-          set -e
-
-          rm -rf build
-
-          xcodebuild \
-            -project Generated/BoomMusic.xcodeproj \
-            -scheme BoomMusic \
-            -sdk iphoneos \
-            -configuration Release \
-            -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            ONLY_ACTIVE_ARCH=NO \
-            build
-
-      - name: Locate App
-        run: |
-          set -e
-
-          APP=$(find build \
-            -type d \
-            -name "BoomMusic.app" \
-            -print -quit)
-
-          if [ -z "$APP" ]; then
-            echo "ERROR: BoomMusic.app tidak ditemukan"
-            exit 1
-          fi
-
-          echo "$APP" > app_path.txt
-
-          echo "=== APP ==="
-          echo "$APP"
-
-          echo "=== EXECUTABLE ==="
-          ls -lh "$APP/BoomMusic"
-
-          file "$APP/BoomMusic"
-
-      - name: Inject WWW
-        run: |
-          set -e
-
-          APP=$(cat app_path.txt)
-
-          echo "=== COPY WWW ==="
-
-          rm -rf "$APP/www"
-          mkdir -p "$APP/www"
-
-          cp -R BoomMusic/www/. "$APP/www/"
-
-          echo "=== WWW ==="
-
-          find "$APP/www" -type f -print
-
-          test -f "$APP/www/index.html"
-          test -f "$APP/www/Player.js"
-          test -f "$APP/www/Equalizer.js"
-          test -f "$APP/www/Visualizer.js"
-
-          echo "WWW OK"
-
-      - name: Prepare Payload
-        run: |
-          set -e
-
-          APP=$(cat app_path.txt)
-
-          rm -rf Payload
-          mkdir Payload
-
-          cp -R "$APP" Payload/BoomMusic.app
-
-          echo "=== APP SIZE ==="
-          du -sh Payload/BoomMusic.app
-
-          echo "=== EXECUTABLE ==="
-          file Payload/BoomMusic.app/BoomMusic
-
-          echo "=== WWW ==="
-          find Payload/BoomMusic.app/www -type f -print
-
-          test -f Payload/BoomMusic.app/BoomMusic
-          test -f Payload/BoomMusic.app/www/index.html
-          test -f Payload/BoomMusic.app/www/Player.js
-          test -f Payload/BoomMusic.app/www/Equalizer.js
-          test -f Payload/BoomMusic.app/www/Visualizer.js
-
-          echo "PAYLOAD OK"
-
       - name: Create IPA
         run: |
           set -e
 
+          rm -rf IPA_PACKAGE
           rm -f BoomMusic.ipa
 
-          cd Payload
+          mkdir -p IPA_PACKAGE/Payload
 
-          zip -qry ../BoomMusic.ipa BoomMusic.app
+          cp -R \
+            Payload/BoomMusic.app \
+            IPA_PACKAGE/Payload/BoomMusic.app
+
+          echo "=== IPA PACKAGE ==="
+
+          find IPA_PACKAGE/Payload/BoomMusic.app \
+            -maxdepth 2 \
+            -type f \
+            -print
+
+          test -f IPA_PACKAGE/Payload/BoomMusic.app/BoomMusic
+          test -f IPA_PACKAGE/Payload/BoomMusic.app/www/index.html
+
+          cd IPA_PACKAGE
+
+          zip -qry ../BoomMusic.ipa Payload
 
           cd ..
 
-          echo "=== FINAL IPA ==="
+          echo "=== IPA ==="
           ls -lh BoomMusic.ipa
 
       - name: Verify IPA
@@ -196,22 +35,35 @@ jobs:
           set -e
 
           rm -rf verify
+
           mkdir verify
 
           unzip -q BoomMusic.ipa -d verify
 
+          echo "=== EXTRACTED IPA ==="
+
+          find verify -maxdepth 3 -type f -print
+
           APP="verify/Payload/BoomMusic.app"
+
+          if [ ! -d "$APP" ]; then
+            echo "ERROR: Payload/BoomMusic.app tidak ditemukan"
+            exit 1
+          fi
 
           echo "=== FINAL APP ==="
           du -sh "$APP"
 
           echo "=== EXECUTABLE ==="
+
           file "$APP/BoomMusic"
 
+          test -f "$APP/BoomMusic"
+
           echo "=== WEB ==="
+
           find "$APP/www" -type f -print
 
-          test -f "$APP/BoomMusic"
           test -f "$APP/www/index.html"
           test -f "$APP/www/Player.js"
           test -f "$APP/www/Equalizer.js"
