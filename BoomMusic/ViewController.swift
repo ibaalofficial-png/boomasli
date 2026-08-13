@@ -1,18 +1,20 @@
 import UIKit
 import WebKit
 
-final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate {
+final class ViewController: UIViewController {
 
     private var webView: WKWebView!
 
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        setupWebView()
-        loadLocalWebApp()
+        view.backgroundColor = .black
+
+        createWebView()
+        loadBoomMusic()
     }
 
-    private func setupWebView() {
+    private func createWebView() {
 
         let configuration = WKWebViewConfiguration()
 
@@ -32,47 +34,50 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             configuration: configuration
         )
 
-        webView.navigationDelegate = self
-        webView.uiDelegate = self
-
         webView.translatesAutoresizingMaskIntoConstraints = false
 
         view.addSubview(webView)
 
         NSLayoutConstraint.activate([
-            webView.topAnchor.constraint(equalTo: view.topAnchor),
-            webView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
+            webView.topAnchor.constraint(
+                equalTo: view.topAnchor
+            ),
+            webView.bottomAnchor.constraint(
+                equalTo: view.bottomAnchor
+            ),
+            webView.leadingAnchor.constraint(
+                equalTo: view.leadingAnchor
+            ),
+            webView.trailingAnchor.constraint(
+                equalTo: view.trailingAnchor
+            )
         ])
 
-        webView.allowsBackForwardNavigationGestures = false
-
         webView.scrollView.bounces = false
-        webView.scrollView.alwaysBounceVertical = false
-        webView.scrollView.alwaysBounceHorizontal = false
+        webView.scrollView.showsVerticalScrollIndicator = false
+        webView.scrollView.showsHorizontalScrollIndicator = false
     }
 
-    private func loadLocalWebApp() {
+    private func loadBoomMusic() {
 
         guard let wwwURL = Bundle.main.url(
             forResource: "www",
             withExtension: nil
         ) else {
 
-            print("ERROR: folder www tidak ditemukan di Bundle")
-
+            print("Boom Music: www tidak ditemukan")
             return
         }
 
-        let indexURL = wwwURL.appendingPathComponent("index.html")
+        let indexURL = wwwURL.appendingPathComponent(
+            "index.html"
+        )
 
         guard FileManager.default.fileExists(
             atPath: indexURL.path
         ) else {
 
-            print("ERROR: index.html tidak ditemukan")
-
+            print("Boom Music: index.html tidak ditemukan")
             return
         }
 
@@ -86,11 +91,9 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         true
     }
 
-    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
-        .all
-    }
+    override var supportedInterfaceOrientations:
+        UIInterfaceOrientationMask {
 
-    override var prefersHomeIndicatorAutoHidden: Bool {
-        true
+        return .all
     }
 }
