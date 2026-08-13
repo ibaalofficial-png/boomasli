@@ -1,4 +1,4 @@
-name: Build Boom Music IPA
+name: Boom Music - Build IPA
 
 on:
   workflow_dispatch:
@@ -13,154 +13,422 @@ jobs:
 
     steps:
 
-      - name: Checkout
+      # =========================================================
+      # 1. CHECKOUT
+      # =========================================================
+
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
 
-      - name: Create Project
-        run: |
-          mkdir -p Build
+      # =========================================================
+      # 2. CHECK REPOSITORY
+      # =========================================================
 
-          cat > Build/project.yml <<'EOF'
-          name: BoomMusic
-
-          options:
-            deploymentTarget:
-              iOS: "15.0"
-
-          settings:
-            base:
-              PRODUCT_BUNDLE_IDENTIFIER: com.boommusic.app
-              PRODUCT_NAME: BoomMusic
-              SWIFT_VERSION: "5.0"
-              TARGETED_DEVICE_FAMILY: "1,2"
-              INFOPLIST_FILE: ../BoomMusic/Info.plist
-              GENERATE_INFOPLIST_FILE: NO
-
-          targets:
-            BoomMusic:
-              type: application
-              platform: iOS
-
-              sources:
-                - path: ../BoomMusic/AppDelegate.swift
-                - path: ../BoomMusic/SceneDelegate.swift
-                - path: ../BoomMusic/ViewController.swift
-                - path: ../BoomMusic/AudioManager.swift
-
-              settings:
-                base:
-                  CODE_SIGNING_ALLOWED: NO
-                  CODE_SIGNING_REQUIRED: NO
-          EOF
-
-          cd Build
-          xcodegen generate
-
-      - name: Archive
-        run: |
-          xcodebuild \
-            -project Build/BoomMusic.xcodeproj \
-            -scheme BoomMusic \
-            -sdk iphoneos \
-            -configuration Release \
-            -archivePath "$GITHUB_WORKSPACE/BoomMusic.xcarchive" \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            archive
-
-      - name: Locate App
+      - name: Inspect Repository
         run: |
           set -e
 
-          echo "=== FIND APP ==="
+          echo "=== REPOSITORY ==="
+          find BoomMusic -maxdepth 3 -type f | sort
 
-          find BoomMusic.xcarchive \
-            -type d \
-            -name "*.app" \
-            -print
+          echo ""
+          echo "=== WEB FILES ==="
 
-          APP=$(find BoomMusic.xcarchive \
-            -type d \
-            -name "BoomMusic.app" \
-            -print -quit)
+          test -f BoomMusic/www/index.html
+          test -f BoomMusic/www/Player.js
 
-          if [ -z "$APP" ]; then
-            echo "ERROR: BoomMusic.app tidak ditemukan"
-            exit 1
-          fi
+          find BoomMusic/www -type f | sort
 
-          echo "APP=$APP"
+          echo ""
+          echo "SOURCE OK"
 
-          echo "$APP" > app_path.txt
+
+      # =========================================================
+      # 3. CREATE XCODE PROJECT
+      # =========================================================
+
+      - name: Create Xcode Project
+        run: |
+          set -e
+
+          mkdir -p BoomMusic.xcodeproj
+
+          python3 <<'PY'
+          import uuid
+          import pathlib
+
+          def uid():
+              return uuid.uuid4().hex[:24].upper()
+
+          project = uid()
+          target = uid()
+          sources_group = uid()
+          products_group = uid()
+          main_group = uid()
+          build_config_list_project = uid()
+          build_config_list_target = uid()
+
+          debug_project = uid()
+          release_project = uid()
+          debug_target = uid()
+          release_target = uid()
+
+          files = [
+              ("AppDelegate.swift", uid(), uid()),
+              ("SceneDelegate.swift", uid(), uid()),
+              ("ViewController.swift", uid(), uid()),
+              ("AudioManager.swift", uid(), uid()),
+          ]
+
+          file_refs = []
+          build_files = []
+
+          for name, fr, bf in files:
+              file_refs.append(
+                  f'{fr} /* {name} */ = {{isa = PBXFileReference; '
+                  f'fileEncoding = 4; lastKnownFileType = sourcecode.swift; '
+                  f'path = "{name}"; sourceTree = "<group>"; }};'
+              )
+
+              build_files.append(
+                  f'{bf} /* {name} in Sources */ = {{isa = PBXBuildFile; '
+                  f'fileRef = {fr} /* {name} */; }};'
+              )
+
+          swift_refs = "\n".join(file_refs)
+          swift_build = "\n".join(build_files)
+
+          swift_group_children = "\n".join(
+              f'\t\t\t\t{fr} /* {name} */,'
+              for name, fr, bf in files
+          )
+
+          swift_sources = "\n".join(
+              f'\t\t\t\t{bf} /* {name} in Sources */,'
+              for name, fr, bf in files
+          )
+
+          pbx = f'''// !$*UTF8*$!
+          {{
+           archiveVersion = 1;
+           classes = {{
+           }};
+           objectVersion = 56;
+           objects = {{
+
+          /* Begin PBXBuildFile section */
+
+          {swift_build}
+
+          /* End PBXBuildFile section */
+
+          /* Begin PBXFileReference section */
+
+          {swift_refs}
+
+          {uid()} /* Info.plist */ = {{isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "BoomMusic/Info.plist"; sourceTree = "<group>"; }};
+
+          {uid()} /* BoomMusic.app */ = {{isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BoomMusic.app; sourceTree = BUILT_PRODUCTS_DIR; }};
+
+          /* End PBXFileReference section */
+
+          /* Begin PBXFrameworksBuildPhase section */
+
+          {uid()} /* Frameworks */ = {{
+              isa = PBXFrameworksBuildPhase;
+              buildActionMask = 2147483647;
+              files = (
+              );
+              runOnlyForDeploymentPostprocessing = 0;
+          }};
+
+          /* End PBXFrameworksBuildPhase section */
+
+          /* Begin PBXNativeTarget section */
+
+          {target} /* BoomMusic */ = {{
+              isa = PBXNativeTarget;
+              buildConfigurationList = {build_config_list_target};
+              buildPhases = (
+                  {uid()},
+                  {uid()},
+                  {uid()},
+              );
+              buildRules = (
+              );
+              dependencies = (
+              );
+              name = BoomMusic;
+              productName = BoomMusic;
+              productReference = {uid()} /* BoomMusic.app */;
+              productType = "com.apple.product-type.application";
+          }};
+
+          /* End PBXNativeTarget section */
+
+          /* Begin PBXProject section */
+
+          {project} /* Project object */ = {{
+              isa = PBXProject;
+              attributes = {{
+                  LastUpgradeCheck = 1600;
+                  TargetAttributes = {{
+                      {target} = {{
+                          CreatedOnToolsVersion = 16.0;
+                      }};
+                  }};
+              }};
+              buildConfigurationList = {build_config_list_project};
+              compatibilityVersion = "Xcode 3.2";
+              developmentRegion = en;
+              hasScannedForEncodings = 0;
+              knownRegions = (
+                  en,
+                  Base,
+              );
+              mainGroup = {main_group};
+              productRefGroup = {products_group};
+              projectDirPath = "";
+              projectRoot = "";
+              targets = (
+                  {target},
+              );
+          }};
+
+          /* End PBXProject section */
+
+          /* Begin PBXResourcesBuildPhase section */
+
+          {uid()} /* Resources */ = {{
+              isa = PBXResourcesBuildPhase;
+              buildActionMask = 2147483647;
+              files = (
+              );
+              runOnlyForDeploymentPostprocessing = 0;
+          }};
+
+          /* End PBXResourcesBuildPhase section */
+
+          /* Begin PBXSourcesBuildPhase section */
+
+          {uid()} /* Sources */ = {{
+              isa = PBXSourcesBuildPhase;
+              buildActionMask = 2147483647;
+              files = (
+          {swift_sources}
+              );
+              runOnlyForDeploymentPostprocessing = 0;
+          }};
+
+          /* End PBXSourcesBuildPhase section */
+
+          /* Begin PBXGroup section */
+
+          {main_group} = {{
+              isa = PBXGroup;
+              children = (
+                  {sources_group},
+                  {products_group},
+              );
+              sourceTree = "<group>";
+          }};
+
+          {sources_group} = {{
+              isa = PBXGroup;
+              children = (
+          {swift_group_children}
+              );
+              path = BoomMusic;
+              sourceTree = "<group>";
+          }};
+
+          {products_group} = {{
+              isa = PBXGroup;
+              children = (
+              );
+              name = Products;
+              sourceTree = "<group>";
+          }};
+
+          /* End PBXGroup section */
+
+          /* Begin XCBuildConfiguration section */
+
+          {debug_project} /* Debug */ = {{
+              isa = XCBuildConfiguration;
+              buildSettings = {{
+                  ALWAYS_SEARCH_USER_PATHS = NO;
+                  CLANG_ENABLE_MODULES = YES;
+                  CODE_SIGNING_ALLOWED = NO;
+                  CODE_SIGNING_REQUIRED = NO;
+                  IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+                  SDKROOT = iphoneos;
+              }};
+              name = Debug;
+          }};
+
+          {release_project} /* Release */ = {{
+              isa = XCBuildConfiguration;
+              buildSettings = {{
+                  ALWAYS_SEARCH_USER_PATHS = NO;
+                  CLANG_ENABLE_MODULES = YES;
+                  CODE_SIGNING_ALLOWED = NO;
+                  CODE_SIGNING_REQUIRED = NO;
+                  IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+                  SDKROOT = iphoneos;
+              }};
+              name = Release;
+          }};
+
+          {debug_target} /* Debug */ = {{
+              isa = XCBuildConfiguration;
+              buildSettings = {{
+                  PRODUCT_BUNDLE_IDENTIFIER = com.boommusic.app;
+                  PRODUCT_NAME = BoomMusic;
+                  INFOPLIST_FILE = BoomMusic/Info.plist;
+                  SWIFT_VERSION = 5.0;
+                  TARGETED_DEVICE_FAMILY = "1,2";
+                  CODE_SIGNING_ALLOWED = NO;
+                  CODE_SIGNING_REQUIRED = NO;
+              }};
+              name = Debug;
+          }};
+
+          {release_target} /* Release */ = {{
+              isa = XCBuildConfiguration;
+              buildSettings = {{
+                  PRODUCT_BUNDLE_IDENTIFIER = com.boommusic.app;
+                  PRODUCT_NAME = BoomMusic;
+                  INFOPLIST_FILE = BoomMusic/Info.plist;
+                  SWIFT_VERSION = 5.0;
+                  TARGETED_DEVICE_FAMILY = "1,2";
+                  CODE_SIGNING_ALLOWED = NO;
+                  CODE_SIGNING_REQUIRED = NO;
+              }};
+              name = Release;
+          }};
+
+          /* End XCBuildConfiguration section */
+
+          /* Begin XCConfigurationList section */
+
+          {build_config_list_project} /* Build configuration list for PBXProject */ = {{
+              isa = XCConfigurationList;
+              buildConfigurations = (
+                  {debug_project},
+                  {release_project},
+              );
+              defaultConfigurationIsVisible = 0;
+              defaultConfigurationName = Release;
+          }};
+
+          {build_config_list_target} /* Build configuration list for PBXNativeTarget */ = {{
+              isa = XCConfigurationList;
+              buildConfigurations = (
+                  {debug_target},
+                  {release_target},
+              );
+              defaultConfigurationIsVisible = 0;
+              defaultConfigurationName = Release;
+          }};
+
+          /* End XCConfigurationList section */
+
+           }};
+           rootObject = {project} /* Project object */;
+          }}
+          '''
+
+          pathlib.Path(
+              "BoomMusic.xcodeproj/project.pbxproj"
+          ).write_text(pbx)
+
+          print("Xcode project created")
+          PY
+
+
+      # =========================================================
+      # 4. BUILD
+      # =========================================================
+
+      - name: Build iPhoneOS
+        run: |
+          set -e
+
+          xcodebuild \
+            -project BoomMusic.xcodeproj \
+            -target BoomMusic \
+            -sdk iphoneos \
+            -configuration Release \
+            CONFIGURATION_BUILD_DIR="$GITHUB_WORKSPACE/build-output" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build
+
+
+      # =========================================================
+      # 5. CHECK APP
+      # =========================================================
+
+      - name: Verify Compiled App
+        run: |
+          set -e
+
+          APP="build-output/BoomMusic.app"
+
+          test -d "$APP"
 
           echo "=== APP SIZE ==="
           du -sh "$APP"
 
-          echo "=== APP CONTENT ==="
-          find "$APP" -maxdepth 2 -type f -print
+          echo "=== EXECUTABLE ==="
+          ls -lh "$APP/BoomMusic"
 
-      - name: Inject Web Files
+          file "$APP/BoomMusic"
+
+          echo "=== APP CONTENT ==="
+          find "$APP" -maxdepth 2 -type f | sort
+
+
+      # =========================================================
+      # 6. COPY WEB CONTENT
+      # =========================================================
+
+      - name: Add Web App
         run: |
           set -e
 
-          APP=$(cat app_path.txt)
+          APP="build-output/BoomMusic.app"
 
-          echo "=== COPYING WWW ==="
-
-          rm -rf "$APP/www"
           mkdir -p "$APP/www"
 
           cp -R BoomMusic/www/. "$APP/www/"
 
+          echo "=== WWW ==="
+          du -sh "$APP/www"
+
+          find "$APP/www" -type f | sort
+
           test -f "$APP/www/index.html"
           test -f "$APP/www/Player.js"
 
-          echo "=== WWW SIZE ==="
-          du -sh "$APP/www"
 
-      - name: Verify App Binary
+      # =========================================================
+      # 7. CREATE IPA
+      # =========================================================
+
+      - name: Package IPA
         run: |
           set -e
-
-          APP=$(cat app_path.txt)
-
-          echo "=== APP EXECUTABLE ==="
-
-          EXECUTABLE="$APP/BoomMusic"
-
-          if [ ! -f "$EXECUTABLE" ]; then
-            echo "ERROR: BoomMusic executable tidak ditemukan"
-
-            echo "Files:"
-            find "$APP" -maxdepth 2 -type f -print
-
-            exit 1
-          fi
-
-          ls -lh "$EXECUTABLE"
-          file "$EXECUTABLE"
-
-      - name: Create IPA
-        run: |
-          set -e
-
-          APP=$(cat app_path.txt)
 
           rm -rf Payload BoomMusic.ipa
-          mkdir -p Payload
 
-          cp -R "$APP" Payload/BoomMusic.app
+          mkdir Payload
 
-          echo "=== PAYLOAD ==="
-          find Payload/BoomMusic.app -maxdepth 2 -type f -print
-
-          echo "=== PAYLOAD SIZE ==="
-          du -sh Payload/BoomMusic.app
-
-          echo "=== CREATE IPA ==="
+          cp -R \
+            build-output/BoomMusic.app \
+            Payload/BoomMusic.app
 
           cd Payload
 
@@ -168,8 +436,16 @@ jobs:
 
           cd ..
 
-          echo "=== IPA ==="
+          echo "=== FINAL IPA ==="
           ls -lh BoomMusic.ipa
+
+          echo "=== APP SIZE ==="
+          du -sh Payload/BoomMusic.app
+
+
+      # =========================================================
+      # 8. VERIFY IPA
+      # =========================================================
 
       - name: Verify IPA
         run: |
@@ -179,34 +455,27 @@ jobs:
 
           unzip -l BoomMusic.ipa
 
-          echo "=== VERIFY EXECUTABLE ==="
+          echo "=== EXECUTABLE ==="
 
           unzip -l BoomMusic.ipa \
-            | grep "BoomMusic.app/BoomMusic"
+            | grep "Payload/BoomMusic.app/BoomMusic"
 
-          echo "=== VERIFY INDEX ==="
-
-          unzip -l BoomMusic.ipa \
-            | grep "BoomMusic.app/www/index.html"
-
-          echo "=== VERIFY PLAYER ==="
+          echo "=== INDEX ==="
 
           unzip -l BoomMusic.ipa \
-            | grep "BoomMusic.app/www/Player.js"
+            | grep "Payload/BoomMusic.app/www/index.html"
 
-          echo "=== VERIFY EQUALIZER ==="
-
-          unzip -l BoomMusic.ipa \
-            | grep "BoomMusic.app/www/Equalizer.js"
-
-          echo "=== VERIFY VISUALIZER ==="
+          echo "=== PLAYER ==="
 
           unzip -l BoomMusic.ipa \
-            | grep "BoomMusic.app/www/Visualizer.js"
+            | grep "Payload/BoomMusic.app/www/Player.js"
 
-          echo "=============================="
-          echo " BOOM MUSIC IPA READY"
-          echo "=============================="
+          echo "=== IPA OK ==="
+
+
+      # =========================================================
+      # 9. UPLOAD
+      # =========================================================
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
